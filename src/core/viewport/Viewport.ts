@@ -4,11 +4,11 @@ import type { PageConstraints } from '../layout/LayoutEngine';
 import type { DocumentModel } from '../model/DocumentModel';
 
 export class Viewport {
-    private renderer: CanvasRenderer;
-    private layoutEngine: LayoutEngine;
-    private canvas: HTMLCanvasElement;
+    public renderer: CanvasRenderer;
+    public layoutEngine: LayoutEngine;
+    public canvas: HTMLCanvasElement;
     private document: DocumentModel;
-    private pageConstraints: PageConstraints;
+    public pageConstraints: PageConstraints;
 
     constructor(container: HTMLElement, document: DocumentModel) {
         this.canvas = window.document.createElement('canvas');

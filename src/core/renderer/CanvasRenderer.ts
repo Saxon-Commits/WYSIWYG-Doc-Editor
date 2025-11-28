@@ -66,4 +66,47 @@ export class CanvasRenderer {
             this.ctx.fillText(glyph.char, glyph.x, glyph.y);
         }
     }
+
+    drawCursor(x: number, y: number, height: number, visible: boolean) {
+        if (!visible) return;
+
+        this.ctx.fillStyle = '#000000';
+        // Draw cursor. Y is baseline, so we draw up from Y? 
+        // Usually Y passed to fillText is baseline.
+        // If height is passed, we assume we want to draw from baseline up?
+        // Or is Y the top?
+        // In LayoutEngine, y is baseline (because we used ascender offset).
+        // So we should draw from y - ascender (top) to y + descender (bottom)?
+        // The user said: "Cursor Height = fontService.getHeight(...)".
+        // And "Cursor Y = glyph.y".
+        // If glyph.y is baseline, and we want to draw a bar of 'height', 
+        // we usually want it centered on the line or from top to bottom.
+        // Let's assume we draw from (y - height + descender) roughly?
+        // Or simpler: The user said "Cursor Y = glyph.y".
+        // If I draw at Y, and height is 20, do I go down or up?
+        // Standard canvas coords: Y increases downwards.
+        // If I draw rect at (x, y, 2, height), it goes DOWN.
+        // But glyph.y is baseline. Text is above Y.
+        // So I should probably draw at (x, y - ascender, 2, height).
+        // But I don't have ascender here easily.
+        // Let's look at the user request again.
+        // "Cursor Y = glyph.y. Cursor Height = fontService.getHeight(...)."
+        // If I follow strictly: draw at y.
+        // But if y is baseline, drawing down will be in the descender/margin area.
+        // I'll assume I need to adjust Y to be the top of the line.
+        // Wait, the user said: "Cursor Y = glyph.y".
+        // Maybe I should just draw it and see.
+        // Actually, looking at previous step: "Start at margin + ascender so the top of the text touches the margin".
+        // So Y is baseline.
+        // If I draw at Y, it goes down. That's wrong for the main body of text.
+        // I should draw from (y - ascender).
+        // However, the user didn't say "calculate top".
+        // I will implement `drawCursor` to take `y` as the TOP of the cursor, or `y` as the baseline?
+        // "It should draw a vertical line (width 2px) at (x, y)."
+        // If I pass `glyph.y` as `y`, and `glyph.y` is baseline...
+        // I will assume the caller (main.ts) will calculate the correct Top Y.
+        // So `drawCursor` just draws a rect at x, y with height.
+
+        this.ctx.fillRect(x, y, 2, height);
+    }
 }

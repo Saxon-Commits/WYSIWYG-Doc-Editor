@@ -1,5 +1,6 @@
 import type { DocumentModel, Paragraph } from '../model/DocumentModel';
 import { fontService } from '../font/FontService';
+import type { Selection } from '../state/EditorState';
 
 export interface RenderGlyph {
     char: string;
@@ -7,6 +8,12 @@ export interface RenderGlyph {
     y: number;
     fontFamily: string;
     fontSize: number;
+    // Metadata for hit testing
+    source: {
+        paragraphIndex: number;
+        spanIndex: number;
+        charIndex: number;
+    };
 }
 
 export interface RenderPage {
@@ -26,11 +33,13 @@ export interface PageConstraints {
 }
 
 export type LayoutItem =
-    | { type: 'BOX'; width: number; char: string }
-    | { type: 'GLUE'; width: number; stretch: number; shrink: number; originalChar: string }
+    | { type: 'BOX'; width: number; char: string; source: { paragraphIndex: number; spanIndex: number; charIndex: number } }
+    | { type: 'GLUE'; width: number; stretch: number; shrink: number; originalChar: string; source: { paragraphIndex: number; spanIndex: number; charIndex: number } }
     | { type: 'PENALTY'; width: number; cost: number; flagged: boolean };
 
 export class LayoutEngine {
+    private lastPages: RenderPage[] = [];
+
     constructor() { }
 
     layout(document: DocumentModel, constraints: PageConstraints): RenderPage[] {
@@ -46,10 +55,11 @@ export class LayoutEngine {
         // We'll assume a single column layout for now
         const maxWidth = constraints.width - constraints.marginLeft - constraints.marginRight;
 
+        let paragraphIndex = 0;
         for (const section of document.sections) {
             for (const node of section.children) {
                 if (node.type === 'paragraph') {
-                    const result = this.layoutParagraph(node, maxWidth, currentY, constraints);
+                    const result = this.layoutParagraph(node, paragraphIndex, maxWidth, currentY, constraints);
 
                     // Check if we need a new page (simple check for now)
                     if (result.endY > constraints.height - constraints.marginBottom) {
@@ -60,12 +70,68 @@ export class LayoutEngine {
 
                     currentPage.glyphs.push(...result.glyphs);
                     currentY = result.endY + 20; // Paragraph spacing
+                    paragraphIndex++;
                 }
             }
         }
 
         pages.push(currentPage);
+        this.lastPages = pages;
         return pages;
+    }
+
+    hitTest(x: number, y: number): Selection | null {
+        // 1. Find the Page (Assume Page 1 for now)
+        const page = this.lastPages[0];
+        if (!page) return null;
+
+        // 2. Find the Line
+        // We don't explicitly store lines, but we can infer them from Y coordinates.
+        // Or we can just search all glyphs (inefficient but works for small docs).
+        // Better: Group glyphs by Y?
+        // For this task, "Iterate through the rendered glyphs to find which Y-range matches the mouse."
+
+        // Let's find glyphs that are on the same line as Y.
+        // We'll assume a line height or check if y is within glyph.y - ascender and glyph.y + descender?
+        // Or just find the closest glyph in Y, then X.
+
+        let closestGlyph: RenderGlyph | null = null;
+        let minDist = Infinity;
+
+        for (const glyph of page.glyphs) {
+            // Simple distance check
+            const dx = glyph.x + (fontService.getGlyphMetrics(glyph.fontFamily, glyph.char, glyph.fontSize) / 2) - x;
+            const dy = glyph.y - (glyph.fontSize / 3) - y; // Approximate center Y
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist < minDist) {
+                minDist = dist;
+                closestGlyph = glyph;
+            }
+        }
+
+        if (closestGlyph) {
+            // Snap to Nearest: Calculate the distance to the center of the character.
+            const width = fontService.getGlyphMetrics(closestGlyph.fontFamily, closestGlyph.char, closestGlyph.fontSize);
+            const centerX = closestGlyph.x + width / 2;
+
+            let charIndex = closestGlyph.source.charIndex;
+
+            if (x > centerX) {
+                // Cursor goes after the character
+                charIndex++;
+            }
+
+            return {
+                startPage: 1,
+                startOffset: 0, // Not used yet
+                paragraphIndex: closestGlyph.source.paragraphIndex,
+                spanIndex: closestGlyph.source.spanIndex,
+                charIndex: charIndex
+            };
+        }
+
+        return null;
     }
 
     private createPage(pageNumber: number, constraints: PageConstraints): RenderPage {
@@ -77,15 +143,17 @@ export class LayoutEngine {
         };
     }
 
-    private tokenizeParagraph(paragraph: Paragraph): LayoutItem[] {
+    private tokenizeParagraph(paragraph: Paragraph, paragraphIndex: number): LayoutItem[] {
         const items: LayoutItem[] = [];
 
+        let spanIndex = 0;
         for (const span of paragraph.children) {
             const { fontFamily, fontSize } = span.style;
             const text = span.text;
 
             for (let i = 0; i < text.length; i++) {
                 const char = text[i];
+                const source = { paragraphIndex, spanIndex, charIndex: i };
 
                 if (char === ' ') {
                     const width = fontService.getGlyphMetrics(fontFamily, ' ', fontSize);
@@ -94,28 +162,31 @@ export class LayoutEngine {
                         width,
                         stretch: width * 0.5,
                         shrink: width * 0.3,
-                        originalChar: ' '
+                        originalChar: ' ',
+                        source
                     });
                 } else {
                     const width = fontService.getGlyphMetrics(fontFamily, char, fontSize);
                     items.push({
                         type: 'BOX',
                         width,
-                        char
+                        char,
+                        source
                     });
                 }
             }
+            spanIndex++;
         }
 
         // Add a finishing penalty to force a break at the end
-        items.push({ type: 'GLUE', width: 0, stretch: 10000, shrink: 0, originalChar: '' });
+        items.push({ type: 'GLUE', width: 0, stretch: 10000, shrink: 0, originalChar: '', source: { paragraphIndex, spanIndex: -1, charIndex: -1 } });
         items.push({ type: 'PENALTY', width: 0, cost: -1000, flagged: true }); // Forced break
 
         return items;
     }
 
-    private layoutParagraph(paragraph: Paragraph, maxWidth: number, startY: number, constraints: PageConstraints): { glyphs: RenderGlyph[], endY: number } {
-        const items = this.tokenizeParagraph(paragraph);
+    private layoutParagraph(paragraph: Paragraph, paragraphIndex: number, maxWidth: number, startY: number, constraints: PageConstraints): { glyphs: RenderGlyph[], endY: number } {
+        const items = this.tokenizeParagraph(paragraph, paragraphIndex);
         const glyphs: RenderGlyph[] = [];
 
         // Font styles (simplified for now)
@@ -230,7 +301,8 @@ export class LayoutEngine {
                         x: x,
                         y: currentY,
                         fontFamily: style.fontFamily,
-                        fontSize: style.fontSize
+                        fontSize: style.fontSize,
+                        source: item.source
                     });
                     x += item.width;
                 } else if (item.type === 'GLUE') {

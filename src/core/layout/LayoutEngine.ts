@@ -36,7 +36,12 @@ export class LayoutEngine {
     layout(document: DocumentModel, constraints: PageConstraints): RenderPage[] {
         const pages: RenderPage[] = [];
         let currentPage: RenderPage = this.createPage(1, constraints);
-        let currentY = constraints.marginTop;
+
+        const defaultStyle = { fontFamily: 'Roboto-Regular', fontSize: 16 }; // Should come from document
+        const metrics = fontService.getVerticalMetrics(defaultStyle.fontFamily, defaultStyle.fontSize);
+
+        // Start at margin + ascender so the top of the text touches the margin, not the bottom.
+        let currentY = constraints.marginTop + metrics.ascender;
 
         // We'll assume a single column layout for now
         const maxWidth = constraints.width - constraints.marginLeft - constraints.marginRight;

@@ -47,6 +47,18 @@ export class FontService {
         // Simple heuristic for now: 1.2 * fontSize
         return fontSize * 1.2;
     }
+
+    getVerticalMetrics(fontFamily: string, fontSize: number): { ascender: number; descender: number; height: number } {
+        const font = this.glyphTable.fonts[fontFamily];
+        if (!font) return { ascender: fontSize, descender: 0, height: fontSize }; // Fallback
+
+        const scale = fontSize / font.unitsPerEm;
+        return {
+            ascender: font.ascender * scale,
+            descender: font.descender * scale,
+            height: (font.ascender - font.descender) * scale
+        };
+    }
 }
 
 export const fontService = new FontService();

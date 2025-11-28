@@ -113,113 +113,112 @@ export class LayoutEngine {
         const items = this.tokenizeParagraph(paragraph);
         const glyphs: RenderGlyph[] = [];
 
-        // Greedy Line Breaker
-        let lineStart = 0;
-        let currentY = startY;
-        const lineHeight = 20; // Should be derived from font
-
-        // We need to know the font style for rendering. 
-        // Simplified: assuming uniform style for the whole paragraph for now, 
-        // or taking it from the first span. 
-        // In a robust implementation, LayoutItems would carry style info.
+        // Font styles (simplified for now)
         const style = paragraph.children[0]?.style || { fontFamily: 'Roboto-Regular', fontSize: 16 };
+        const lineHeight = fontService.getLineHeight(style.fontSize);
+
+        let currentY = startY;
+        let lineStart = 0;
 
         while (lineStart < items.length) {
             let currentWidth = 0;
             let totalStretch = 0;
             let totalShrink = 0;
-            let bestBreak = -1;
-            let minBadness = Infinity;
-            let bestRatio = 0;
 
-            // Find potential breakpoints
+            let breakIndex = -1;
+            let forcedBreak = false;
+
+            // 1. Scan forward to find where the line MUST break
             for (let i = lineStart; i < items.length; i++) {
                 const item = items[i];
 
                 if (item.type === 'BOX') {
                     currentWidth += item.width;
                 } else if (item.type === 'GLUE') {
-                    // Break point is BEFORE the glue (or rather, we can break at glue)
-                    // But usually we include the glue in the line if we don't break, 
-                    // or discard it if we do. 
-                    // Standard Knuth-Plass: potential break is at Glue or Penalty.
+                    // This is a valid break point. Record it.
+                    // But first, adding the glue width to the calculation (usually we don't count glue at the end, but for measuring we track it)
+                    // For the break decision, we look at the width BEFORE this glue.
+                    breakIndex = i;
 
-                    // Check if this is a valid breakpoint (simplified: any glue is a break opportunity)
-                    // We calculate the line as if we break *after* the previous box and discard this glue?
-                    // Or we include this glue?
-                    // Let's assume we break *at* this glue. The glue itself is discarded at the break.
-
-                    // Calculate badness if we break here
-                    const adjustment = maxWidth - currentWidth;
-                    let ratio = 0;
-
-                    if (adjustment > 0) {
-                        // Line is too short
-                        ratio = totalStretch > 0 ? adjustment / totalStretch : 0; // Avoid Infinity
-                        // If totalStretch is 0 and adjustment > 0, it's infinitely bad unless adjustment is 0
-                        if (totalStretch === 0 && adjustment > 0) ratio = 1000; // Arbitrary high number
-                    } else if (adjustment < 0) {
-                        // Line is too long
-                        ratio = totalShrink > 0 ? adjustment / totalShrink : 0;
-                        if (totalShrink === 0 && adjustment < 0) ratio = -1000;
-                    }
-
-                    // Cap ratio for calculation stability? 
-                    // Knuth-Plass usually limits ratio to [-1, infinity] (or some max stretch)
-
-                    const badness = 100 * Math.pow(Math.abs(ratio), 3);
-
-                    // If we are within feasible range (e.g. ratio >= -1)
-                    if (ratio >= -1) {
-                        if (badness < minBadness) {
-                            minBadness = badness;
-                            bestBreak = i;
-                            bestRatio = ratio;
-                        }
-                    }
-
-                    // Add glue width to current line for *continuation*
                     currentWidth += item.width;
                     totalStretch += item.stretch;
                     totalShrink += item.shrink;
-
-                } else if (item.type === 'PENALTY') {
-                    if (item.cost === -1000) {
-                        // Forced break
-                        bestBreak = i;
-                        bestRatio = 0; // Last line usually has 0 ratio (left aligned) or we fill with infinite glue
-                        // For the last line, we usually want natural width, so ratio 0.
-                        // But if we used the infinite glue at the end, the ratio calculation handles it.
-                        // Let's trust the infinite glue we added in tokenize.
-
-                        // If we are at the penalty, we break.
-                        break; // Stop looking for breaks
-                    }
+                } else if (item.type === 'PENALTY' && item.flagged) {
+                    breakIndex = i;
+                    forcedBreak = true;
+                    break; // Hard stop
                 }
 
-                // If line is way too long, stop looking? (Optimization)
-                if (currentWidth > maxWidth + 1000) break; // Safety break
-            }
+                // CHECK: Did we overflow?
+                if (currentWidth > maxWidth) {
+                    // If we have a previous break point, use it.
+                    if (breakIndex !== -1) {
+                        forcedBreak = true;
+                        // We found the limit. breakIndex holds the index of the LAST GLUE that fit.
+                        // However, if the current item is the one that broke the camel's back, 
+                        // and breakIndex == i, we might want to break *here*.
 
-            if (bestBreak === -1) {
-                // Could not find a good break, force break at next glue or end
-                // Fallback: just find the next glue
-                let found = false;
-                for (let i = lineStart; i < items.length; i++) {
-                    if (items[i].type === 'GLUE' || items[i].type === 'PENALTY') {
-                        bestBreak = i;
-                        found = true;
-                        break;
+                        // If the current item is BOX, and we are over width, we must go back to the previous GLUE (breakIndex).
+                        // If breakIndex is actually 'i' (we are at a glue), we break here.
+                    } else {
+                        // The single word is wider than the line (emergency case)
+                        breakIndex = i;
+                        forcedBreak = true;
                     }
+                    break;
                 }
-                if (!found) bestBreak = items.length; // Should not happen with forced penalty
             }
 
-            // Render the line
+            // If we reached the end of the paragraph without overflowing
+            if (!forcedBreak) {
+                breakIndex = items.length;
+            }
+
+            // 2. Calculate Ratio for the chosen break
+            // We need to sum up the width of the content we actually decided to keep [lineStart ... breakIndex]
+            // And exclude the trailing glue if it's a glue break.
+
+            let usedWidth = 0;
+            let usedStretch = 0;
+            let usedShrink = 0;
+
+            // Refine the loop to calculate exact metrics for the chosen range
+            // We exclude the item at 'breakIndex' if it is GLUE (it becomes invisible newline)
+            for (let j = lineStart; j < breakIndex; j++) {
+                const item = items[j];
+                if (item.type === 'BOX') {
+                    usedWidth += item.width;
+                } else if (item.type === 'GLUE') {
+                    usedWidth += item.width;
+                    usedStretch += item.stretch;
+                    usedShrink += item.shrink;
+                }
+            }
+
+            const difference = maxWidth - usedWidth;
+            let ratio = 0;
+
+            if (difference > 0) {
+                // Stretch (unless it's the last line of paragraph, then 0)
+                const breakItem = items[breakIndex];
+                if (breakIndex !== items.length && (breakItem.type !== 'PENALTY' || !breakItem.flagged)) {
+                    ratio = usedStretch > 0 ? difference / usedStretch : 0;
+                }
+            } else {
+                // Shrink
+                ratio = usedShrink > 0 ? difference / usedShrink : 0;
+            }
+
+            // Safety clamp for rendering (don't explode the glyphs)
+            if (ratio < -1) ratio = -1;
+            if (ratio > 5) ratio = 5; // Prevent massive gaps on forced breaks
+
+            // 3. Render the Line
             let x = constraints.marginLeft;
 
-            for (let i = lineStart; i < bestBreak; i++) {
-                const item = items[i];
+            for (let j = lineStart; j < breakIndex; j++) {
+                const item = items[j];
+
                 if (item.type === 'BOX') {
                     glyphs.push({
                         char: item.char,
@@ -230,19 +229,21 @@ export class LayoutEngine {
                     });
                     x += item.width;
                 } else if (item.type === 'GLUE') {
-                    // Apply adjustment
                     let adjustedWidth = item.width;
-                    if (bestRatio > 0) {
-                        adjustedWidth += item.stretch * bestRatio;
-                    } else if (bestRatio < 0) {
-                        adjustedWidth += item.shrink * bestRatio;
+                    if (ratio !== 0) {
+                        if (ratio > 0) adjustedWidth += item.stretch * ratio;
+                        else adjustedWidth += item.shrink * ratio;
                     }
                     x += adjustedWidth;
                 }
             }
 
+            // Move to next line
             currentY += lineHeight;
-            lineStart = bestBreak + 1; // Skip the glue/penalty we broke at
+            lineStart = breakIndex + 1; // Skip the glue/break item
+
+            // Safety break to prevent infinite loops if logic fails
+            if (lineStart <= lineStart - 1) break;
         }
 
         return { glyphs, endY: currentY };

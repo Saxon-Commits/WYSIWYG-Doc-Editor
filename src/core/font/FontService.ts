@@ -42,6 +42,11 @@ export class FontService {
         }
         return 0;
     }
+
+    getLineHeight(fontSize: number): number {
+        // Simple heuristic for now: 1.2 * fontSize
+        return fontSize * 1.2;
+    }
 }
 
 export const fontService = new FontService();

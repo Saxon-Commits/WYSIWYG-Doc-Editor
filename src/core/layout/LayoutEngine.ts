@@ -186,6 +186,35 @@ export class LayoutEngine {
             spanIndex++;
         }
 
+        // FIX: Handle empty paragraphs (Ghost Box)
+        if (items.length === 0) {
+            // Use style of first span or default
+            // const style = paragraph.children[0]?.style || { fontFamily: 'Roboto-Regular', fontSize: 16 };
+            // Actually we don't need style here, as we hardcode width 0 and char ''
+            // But wait, if we want correct line height later, we might need it?
+            // The ghost box has width 0.
+            // But layoutParagraph uses style for line height?
+            // layoutParagraph gets style from paragraph.children[0].
+            // If paragraph has no children, layoutParagraph uses default.
+            // So we don't need to do anything here except push the item.
+            // The user said: "Note: Ensure you use the style of the first span (even if empty) to generate this item so line height is calculated correctly."
+            // But tokenizeParagraph returns LayoutItems. LayoutItems don't have style.
+            // LayoutItems have width.
+            // LayoutParagraph calculates line height based on paragraph.children[0].style.
+            // So adding a BOX item here with 0 width doesn't affect line height directly in layoutParagraph, 
+            // UNLESS layoutParagraph uses the item to determine something?
+            // layoutParagraph uses paragraph.children[0].style.
+            // If paragraph.children is empty, layoutParagraph uses default style.
+            // So we just need to push the item.
+
+            items.push({
+                type: 'BOX',
+                width: 0,
+                char: '',
+                source: { paragraphIndex, spanIndex: 0, charIndex: 0 }
+            });
+        }
+
         // Add a finishing penalty to force a break at the end
         items.push({ type: 'GLUE', width: 0, stretch: 10000, shrink: 0, originalChar: '', source: { paragraphIndex, spanIndex: -1, charIndex: -1 } });
         items.push({ type: 'PENALTY', width: 0, cost: -1000, flagged: true }); // Forced break
@@ -302,6 +331,9 @@ export class LayoutEngine {
 
             for (let j = lineStart; j < breakIndex; j++) {
                 const item = items[j];
+
+                // FIX: Ignore sentinel items (spanIndex -1)
+                if (item.type !== 'PENALTY' && item.source.spanIndex === -1) continue;
 
                 if (item.type === 'BOX') {
                     glyphs.push({

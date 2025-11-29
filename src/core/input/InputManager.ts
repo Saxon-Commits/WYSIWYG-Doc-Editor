@@ -62,26 +62,47 @@ export class InputManager {
                 this.onUpdate();
             } else if (e.key === 'Backspace') {
                 deleteText(this.documentModel, this.editorState.selection, 'backward');
-
-                // Move cursor backward
-                if (this.editorState.selection.charIndex > 0) {
-                    this.editorState.selection.charIndex--;
-                }
-
+                // Cursor movement is now handled entirely by deleteText
                 this.onUpdate();
             } else if (e.key === 'Delete') {
                 deleteText(this.documentModel, this.editorState.selection, 'forward');
                 this.onUpdate();
             } else if (e.key === 'ArrowLeft') {
+                // Case 1: Middle of paragraph
                 if (this.editorState.selection.charIndex > 0) {
                     this.editorState.selection.charIndex--;
                     this.onUpdate();
                 }
+                // Case 2: Start of paragraph (Go to end of previous)
+                else if (this.editorState.selection.paragraphIndex > 0) {
+                    const prevIndex = this.editorState.selection.paragraphIndex - 1;
+                    const prevParagraph = this.documentModel.sections[0].children[prevIndex];
+                    // Assume single span for now
+                    const lastSpan = prevParagraph.children[prevParagraph.children.length - 1];
+
+                    this.editorState.selection.paragraphIndex = prevIndex;
+                    this.editorState.selection.spanIndex = prevParagraph.children.length - 1;
+                    this.editorState.selection.charIndex = lastSpan.text.length;
+                    this.onUpdate();
+                }
             } else if (e.key === 'ArrowRight') {
-                // We need to know the max length of the current span to limit this
-                // For now, let's just increment and rely on visual feedback or bounds checking later
-                this.editorState.selection.charIndex++;
-                this.onUpdate();
+                // Get current context
+                const section = this.documentModel.sections[0];
+                const paragraph = section.children[this.editorState.selection.paragraphIndex];
+                const span = paragraph.children[this.editorState.selection.spanIndex];
+
+                // Case 1: Middle of paragraph
+                if (this.editorState.selection.charIndex < span.text.length) {
+                    this.editorState.selection.charIndex++;
+                    this.onUpdate();
+                }
+                // Case 2: End of paragraph (Go to start of next)
+                else if (this.editorState.selection.paragraphIndex < section.children.length - 1) {
+                    this.editorState.selection.paragraphIndex++;
+                    this.editorState.selection.spanIndex = 0;
+                    this.editorState.selection.charIndex = 0;
+                    this.onUpdate();
+                }
             }
         });
 

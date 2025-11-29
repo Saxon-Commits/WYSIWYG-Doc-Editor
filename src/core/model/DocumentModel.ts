@@ -81,18 +81,57 @@ export function deleteText(document: DocumentModel, selection: Selection, direct
 
     if (direction === 'backward') {
         if (selection.charIndex > 0) {
+            // Simple delete: Remove char and move cursor back
             const before = span.text.substring(0, selection.charIndex - 1);
             const after = span.text.substring(selection.charIndex);
             span.text = before + after;
+            selection.charIndex--;
+        } else {
+            // Merge Paragraphs: If at start of paragraph (and not the first one)
+            if (selection.spanIndex === 0 && selection.paragraphIndex > 0) {
+                const prevParagraphIndex = selection.paragraphIndex - 1;
+                const prevParagraph = section.children[prevParagraphIndex];
+
+                // We want the cursor to be at the end of the previous paragraph's content
+                const newSpanIndex = prevParagraph.children.length - 1;
+                const lastSpan = prevParagraph.children[newSpanIndex];
+                const newCharIndex = lastSpan.text.length;
+
+                // Move all spans from current paragraph to previous paragraph
+                prevParagraph.children.push(...paragraph.children);
+
+                // Remove the current paragraph
+                section.children.splice(selection.paragraphIndex, 1);
+
+                // Update Selection to the merge point
+                selection.paragraphIndex = prevParagraphIndex;
+                selection.spanIndex = newSpanIndex;
+                selection.charIndex = newCharIndex;
+            }
         }
-        // Else: handle merging with previous span or paragraph (not implemented yet)
     } else {
+        // Forward delete (Delete key)
         if (selection.charIndex < span.text.length) {
             const before = span.text.substring(0, selection.charIndex);
             const after = span.text.substring(selection.charIndex + 1);
             span.text = before + after;
+            // Cursor stays in place for forward delete
+        } else {
+            // Forward Merge: If at end of paragraph, pull the NEXT paragraph into this one
+            const section = document.sections[0];
+            if (selection.paragraphIndex < section.children.length - 1) {
+                const nextParaIndex = selection.paragraphIndex + 1;
+                const nextParagraph = section.children[nextParaIndex];
+
+                // Move children from next to current
+                paragraph.children.push(...nextParagraph.children);
+
+                // Remove next paragraph
+                section.children.splice(nextParaIndex, 1);
+
+                // Cursor stays in place (at the join point)
+            }
         }
-        // Else: handle merging with next span or paragraph
     }
 }
 

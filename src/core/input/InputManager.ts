@@ -20,11 +20,17 @@ export class InputManager {
 
     private setupTextarea() {
         this.textarea.style.position = 'absolute';
+        // Keep opacity 0, but ensure it's technically "on screen"
         this.textarea.style.opacity = '0';
         this.textarea.style.pointerEvents = 'none';
-        this.textarea.style.zIndex = '-1';
+        this.textarea.style.zIndex = '0'; // Change from -1 to 0 just to be safe
         this.textarea.style.width = '1px';
         this.textarea.style.height = '1px';
+
+        // Improve mobile keyboard support
+        this.textarea.setAttribute('autocorrect', 'off');
+        this.textarea.setAttribute('autocapitalize', 'off');
+        this.textarea.setAttribute('spellcheck', 'false');
 
         document.body.appendChild(this.textarea);
     }

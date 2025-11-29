@@ -152,9 +152,14 @@ requestAnimationFrame(actualRenderLoop);
 
 // Add hit testing
 viewport.canvas.addEventListener('mousedown', (event) => {
+  // CRITICAL FIX: Prevent the default browser behavior.
+  // This stops the browser from "blurring" our hidden textarea 
+  // immediately after we try to focus it.
+  event.preventDefault();
+
   const rect = viewport.canvas.getBoundingClientRect();
 
-  // We need to account for DPR in hit test if the layout engine works in logical pixels
+  // Account for border/padding if necessary, but clientX/rect is usually fine
   const logicalX = event.clientX - rect.left;
   const logicalY = event.clientY - rect.top;
 
@@ -162,12 +167,15 @@ viewport.canvas.addEventListener('mousedown', (event) => {
 
   if (selection) {
     editorState.setSelection(selection);
-    // Reset blink
+
+    // Reset blink state so cursor is visible immediately on click
     isCursorVisible = true;
     lastBlinkTime = performance.now();
 
-    // Focus input
+    // Focus the hidden input so the user can type
     inputManager.focus();
-    // We will update cursor position in the next render frame
+
+    // Debug log to confirm focus is held
+    console.log('Selection set & Input focused');
   }
 });

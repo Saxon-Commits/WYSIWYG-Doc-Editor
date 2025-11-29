@@ -149,4 +149,8 @@ export class Toolbar {
         console.log('Loaded Document:', doc);
         this.onLoadDocument(doc);
     }
+
+    public setDocument(document: DocumentModel) {
+        this.documentModel = document;
+    }
 }

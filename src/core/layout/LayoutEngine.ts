@@ -206,7 +206,7 @@ export class LayoutEngine {
                         stretch: width * 0.5,
                         shrink: width * 0.3,
                         originalChar: ' ',
-                        style,
+                        style: style, // <--- ADD THIS
                         source
                     });
                 } else {
@@ -215,7 +215,7 @@ export class LayoutEngine {
                         type: 'BOX',
                         width,
                         char,
-                        style,
+                        style: style, // <--- ADD THIS
                         source
                     });
                 }

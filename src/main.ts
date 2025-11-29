@@ -50,7 +50,8 @@ async function initApp() {
   });
 
   // Initialize Toolbar
-  new Toolbar(doc, editorState, () => {
+  // Assign to variable 'toolbar' so we can reference it inside the callback
+  const toolbar = new Toolbar(doc, editorState, () => {
     isDirty = true;
     inputManager.focus(); // Ensure focus remains
   }, (newDoc) => {
@@ -58,6 +59,10 @@ async function initApp() {
     doc = newDoc;
     viewport.setDocument(doc);
     inputManager.setDocument(doc);
+
+    // FIX: Update Toolbar's document reference
+    toolbar.setDocument(doc);
+
     editorState.selection = null; // Clear selection
     isDirty = true;
     inputManager.focus();

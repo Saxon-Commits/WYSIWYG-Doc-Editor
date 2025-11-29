@@ -1,4 +1,4 @@
-import { insertText, deleteText, splitParagraph, getRangeText, deleteRange, applyStyle } from '../model/DocumentModel';
+import { insertText, deleteText, splitParagraph, getRangeText, deleteRange, toggleStyle, setParagraphAlignment } from '../model/DocumentModel';
 import type { DocumentModel } from '../model/DocumentModel';
 import { EditorState } from '../state/EditorState';
 
@@ -92,7 +92,7 @@ export class InputManager {
             if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
                 e.preventDefault();
                 if (this.editorState.selection) {
-                    applyStyle(this.documentModel, this.editorState.selection, { bold: true });
+                    toggleStyle(this.documentModel, this.editorState.selection, 'bold');
                     this.onUpdate();
                 }
                 return;
@@ -102,10 +102,60 @@ export class InputManager {
             if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
                 e.preventDefault();
                 if (this.editorState.selection) {
-                    applyStyle(this.documentModel, this.editorState.selection, { italic: true });
+                    toggleStyle(this.documentModel, this.editorState.selection, 'italic');
                     this.onUpdate();
                 }
                 return;
+            }
+
+            // Handle Underline (Cmd+U or Ctrl+U)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
+                e.preventDefault();
+                if (this.editorState.selection) {
+                    toggleStyle(this.documentModel, this.editorState.selection, 'underline');
+                    this.onUpdate();
+                }
+                return;
+            }
+
+            // --- Alignment Shortcuts ---
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
+
+                // Left Align (Cmd+Shift+L)
+                if (e.code === 'KeyL') {
+                    e.preventDefault();
+                    console.log('Shortcut: Align Left'); // Debug to console
+                    setParagraphAlignment(this.documentModel, this.editorState.selection, 'left');
+                    this.onUpdate();
+                    return;
+                }
+
+                // Center Align (Cmd+Shift+E)
+                if (e.code === 'KeyE') {
+                    e.preventDefault();
+                    console.log('Shortcut: Align Center');
+                    setParagraphAlignment(this.documentModel, this.editorState.selection, 'center');
+                    this.onUpdate();
+                    return;
+                }
+
+                // Right Align (Cmd+Shift+R)
+                if (e.code === 'KeyR') {
+                    e.preventDefault();
+                    console.log('Shortcut: Align Right');
+                    setParagraphAlignment(this.documentModel, this.editorState.selection, 'right');
+                    this.onUpdate();
+                    return;
+                }
+
+                // Justify (Cmd+Shift+J)
+                if (e.code === 'KeyJ') {
+                    e.preventDefault();
+                    console.log('Shortcut: Justify');
+                    setParagraphAlignment(this.documentModel, this.editorState.selection, 'justify');
+                    this.onUpdate();
+                    return;
+                }
             }
 
             // Check if range selection

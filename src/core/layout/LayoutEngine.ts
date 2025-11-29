@@ -1,4 +1,4 @@
-import type { DocumentModel, Paragraph } from '../model/DocumentModel';
+import type { DocumentModel, Paragraph, Style } from '../model/DocumentModel';
 import { fontService } from '../font/FontService';
 import type { CursorPosition } from '../state/EditorState';
 
@@ -9,6 +9,10 @@ export interface RenderGlyph {
     width: number; // Added width
     fontFamily: string;
     fontSize: number;
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    color?: string;
     // Metadata for hit testing
     source: {
         paragraphIndex: number;
@@ -18,10 +22,6 @@ export interface RenderGlyph {
 }
 
 // ... (RenderPage, PageConstraints, LayoutItem types remain the same)
-
-// Inside LayoutEngine class, layoutParagraph method:
-
-// 3. Render the Line
 
 
 export interface RenderPage {
@@ -40,9 +40,10 @@ export interface PageConstraints {
     marginRight: number;
 }
 
-export type LayoutItem =
-    | { type: 'BOX'; width: number; char: string; source: { paragraphIndex: number; spanIndex: number; charIndex: number } }
-    | { type: 'GLUE'; width: number; stretch: number; shrink: number; originalChar: string; source: { paragraphIndex: number; spanIndex: number; charIndex: number } }
+// Types for Knuth-Plass
+type LayoutItem =
+    | { type: 'BOX'; width: number; char: string; style: Style; source: { paragraphIndex: number; spanIndex: number; charIndex: number } }
+    | { type: 'GLUE'; width: number; stretch: number; shrink: number; originalChar: string; style: Style; source: { paragraphIndex: number; spanIndex: number; charIndex: number } }
     | { type: 'PENALTY'; width: number; cost: number; flagged: boolean };
 
 export class LayoutEngine {
@@ -60,48 +61,55 @@ export class LayoutEngine {
         let currentY = constraints.marginTop + metrics.ascender;
         const maxWidth = constraints.width - constraints.marginLeft - constraints.marginRight;
 
-        let currentParagraphIndex = 0;
-        let currentSpanIndex = 0;
-        let currentCharIndex = 0;
-
         const section = document.sections[0]; // Assume single section
 
-        while (currentParagraphIndex < section.children.length) {
-            const paragraph = section.children[currentParagraphIndex];
+        for (let i = 0; i < section.children.length; i++) {
+            const paragraph = section.children[i];
+            let startSpanIndex = 0;
+            let startCharIndex = 0;
+            let completed = false;
 
-            // Layout the paragraph (or partial paragraph)
-            const result = this.layoutParagraph(
-                paragraph,
-                currentParagraphIndex,
-                maxWidth,
-                currentY,
-                constraints,
-                currentSpanIndex,
-                currentCharIndex
-            );
+            while (!completed) {
+                const result = this.layoutParagraph(
+                    paragraph,
+                    i,
+                    maxWidth,
+                    currentY,
+                    constraints,
+                    startSpanIndex,
+                    startCharIndex
+                );
 
-            // Add glyphs to current page
-            currentPage.glyphs.push(...result.glyphs);
-            currentY = result.endY;
+                // Add glyphs to current page
+                // Note: layoutParagraph now returns glyphs with absolute Y for the page (relative to page top)
+                // But wait, the provided layoutParagraph uses currentY which starts at marginTop + ascender.
+                // So the Y is already correct for the page.
+                // However, we need to adjust for the fact that RenderGlyph usually expects Y to be baseline.
+                // The new layoutParagraph sets y: currentY.
+                // And currentY is incremented by lineHeight.
+                // So it seems correct.
 
-            if (!result.completed) {
-                // Paragraph didn't fit, move to next page
-                pages.push(currentPage);
-                currentPage = this.createPage(pages.length + 1, constraints);
-                currentY = constraints.marginTop + metrics.ascender;
+                currentPage.glyphs.push(...result.glyphs);
+                currentY = result.endY;
 
-                // Resume from where we left off
-                if (result.nextStart) {
-                    currentSpanIndex = result.nextStart.spanIndex;
-                    currentCharIndex = result.nextStart.charIndex;
+                if (result.completed) {
+                    completed = true;
+                    // Paragraph spacing
+                    currentY += 20;
+                } else {
+                    // Overflow
+                    pages.push(currentPage);
+                    currentPage = this.createPage(pages.length + 1, constraints);
+                    currentY = constraints.marginTop + metrics.ascender;
+
+                    if (result.nextStart) {
+                        startSpanIndex = result.nextStart.spanIndex;
+                        startCharIndex = result.nextStart.charIndex;
+                    } else {
+                        // Should not happen if not completed
+                        completed = true;
+                    }
                 }
-                // Don't increment paragraphIndex, we continue the same paragraph
-            } else {
-                // Paragraph finished
-                currentParagraphIndex++;
-                currentSpanIndex = 0;
-                currentCharIndex = 0;
-                currentY += 20; // Paragraph spacing
             }
         }
 
@@ -138,7 +146,7 @@ export class LayoutEngine {
 
         for (const glyph of page.glyphs) {
             // Note: Use localY here!
-            const width = fontService.getGlyphMetrics(glyph.fontFamily, glyph.char, glyph.fontSize);
+            const width = glyph.width; // Use pre-calculated width
             const dx = glyph.x + (width / 2) - x;
             const dy = glyph.y - (glyph.fontSize / 3) - localY;
             const dist = Math.sqrt(dx * dx + dy * dy);
@@ -150,7 +158,7 @@ export class LayoutEngine {
         }
 
         if (closestGlyph) {
-            const width = fontService.getGlyphMetrics(closestGlyph.fontFamily, closestGlyph.char, closestGlyph.fontSize);
+            const width = closestGlyph.width;
             const centerX = closestGlyph.x + width / 2;
 
             let charIndex = closestGlyph.source.charIndex;
@@ -183,7 +191,7 @@ export class LayoutEngine {
 
         let spanIndex = 0;
         for (const span of paragraph.children) {
-            const { fontFamily, fontSize } = span.style;
+            const style = span.style;
             const text = span.text;
 
             for (let i = 0; i < text.length; i++) {
@@ -191,21 +199,23 @@ export class LayoutEngine {
                 const source = { paragraphIndex, spanIndex, charIndex: i };
 
                 if (char === ' ') {
-                    const width = fontService.getGlyphMetrics(fontFamily, ' ', fontSize);
+                    const width = fontService.getGlyphMetrics(style.fontFamily, ' ', style.fontSize);
                     items.push({
                         type: 'GLUE',
                         width,
                         stretch: width * 0.5,
                         shrink: width * 0.3,
                         originalChar: ' ',
+                        style,
                         source
                     });
                 } else {
-                    const width = fontService.getGlyphMetrics(fontFamily, char, fontSize);
+                    const width = fontService.getGlyphMetrics(style.fontFamily, char, style.fontSize);
                     items.push({
                         type: 'BOX',
                         width,
                         char,
+                        style,
                         source
                     });
                 }
@@ -215,32 +225,18 @@ export class LayoutEngine {
 
         // FIX: Handle empty paragraphs (Ghost Box)
         if (items.length === 0) {
-            // Use style of first span or default
-            // const style = paragraph.children[0]?.style || { fontFamily: 'Roboto-Regular', fontSize: 16 };
-            // Actually we don't need style here, as we hardcode width 0 and char ''
-            // But wait, if we want correct line height later, we might need it?
-            // The ghost box has width 0.
-            // But layoutParagraph uses style for line height?
-            // layoutParagraph gets style from paragraph.children[0].
-            // If paragraph has no children, layoutParagraph uses default.
-            // So we don't need to do anything here except push the item.
-            // The user said: "Note: Ensure you use the style of the first span (even if empty) to generate this item so line height is calculated correctly."
-            // But tokenizeParagraph returns LayoutItems. LayoutItems don't have style.
-            // LayoutItems have width.
-            // LayoutParagraph calculates line height based on paragraph.children[0].style.
-            // If paragraph.children is empty, layoutParagraph uses default style.
-            // So we just need to push the item.
-
+            const style = paragraph.children[0]?.style || { fontFamily: 'Roboto-Regular', fontSize: 16 };
             items.push({
                 type: 'BOX',
                 width: 0,
                 char: '',
+                style,
                 source: { paragraphIndex, spanIndex: 0, charIndex: 0 }
             });
         }
 
         // Add a finishing penalty to force a break at the end
-        items.push({ type: 'GLUE', width: 0, stretch: 10000, shrink: 0, originalChar: '', source: { paragraphIndex, spanIndex: -1, charIndex: -1 } });
+        items.push({ type: 'GLUE', width: 0, stretch: 10000, shrink: 0, originalChar: '', style: { fontFamily: 'Roboto-Regular', fontSize: 16 }, source: { paragraphIndex, spanIndex: -1, charIndex: -1 } });
         items.push({ type: 'PENALTY', width: 0, cost: -1000, flagged: true }); // Forced break
 
         return items;
@@ -258,10 +254,8 @@ export class LayoutEngine {
         const items = this.tokenizeParagraph(paragraph, paragraphIndex);
         const glyphs: RenderGlyph[] = [];
 
-        // Font styles (simplified for now)
         const style = paragraph.children[0]?.style || { fontFamily: 'Roboto-Regular', fontSize: 16 };
-        const lineHeight = fontService.getLineHeight(style.fontSize);
-
+        // We will calculate line height dynamically based on max font size in line
         let currentY = startY;
 
         // Find start item
@@ -276,137 +270,152 @@ export class LayoutEngine {
             }
         }
 
+        const align = paragraph.alignment || 'left';
+
         while (lineStart < items.length) {
-            // Check vertical space BEFORE rendering the line
-            // Check for page overflow (Strict Baseline Check)
-            // If the baseline of the CURRENT line is past the bottom margin, break.
-            if (currentY > constraints.height - constraints.marginBottom) {
-                // Overflow!
-                // We need to return the current position as the start for the next page
-                // But we need to be careful: lineStart points to the beginning of the line we *wanted* to render.
-                // So we return that.
+            // -- 1. Height Calculation --
+            // Scan ahead to find line height (max ascender/descender in the line)
+            // Ideally we do this after finding the break, but for now we assume standard height or calc later.
+            // Let's use a base line height for the overflow check to be safe.
+            const baseLineHeight = fontService.getLineHeight(style.fontSize);
 
-                // Safety check: if lineStart is out of bounds or points to the very end
+            // -- 2. Overflow Check --
+            if (currentY + baseLineHeight > constraints.height - constraints.marginBottom) {
                 if (lineStart >= items.length) break;
-
                 const item = items[lineStart];
-
+                // Safety check for PENALTY which doesn't have source
                 if (item.type === 'PENALTY') {
-                    lineStart++;
-                    continue;
+                    // Should not happen as lineStart shouldn't point to penalty usually, or we skip it
+                    // If it does, just break or skip
+                    break;
                 }
 
                 return {
                     glyphs,
                     endY: currentY,
                     completed: false,
-                    nextStart: {
-                        spanIndex: item.source.spanIndex,
-                        charIndex: item.source.charIndex
-                    }
+                    nextStart: { spanIndex: item.source.spanIndex, charIndex: item.source.charIndex }
                 };
             }
 
+            // -- 3. Line Breaking (Knuth-Plass / First Fit) --
             let currentWidth = 0;
             let totalStretch = 0;
             let totalShrink = 0;
-
             let breakIndex = -1;
             let forcedBreak = false;
 
-            // 1. Scan forward to find where the line MUST break
+            // Scan to find break point
             for (let i = lineStart; i < items.length; i++) {
                 const item = items[i];
-
                 if (item.type === 'BOX') {
                     currentWidth += item.width;
                 } else if (item.type === 'GLUE') {
-                    // This is a valid break point. Record it.
-                    // But first, adding the glue width to the calculation (usually we don't count glue at the end, but for measuring we track it)
-                    // For the break decision, we look at the width BEFORE this glue.
-                    breakIndex = i;
-
+                    breakIndex = i; // Potential break
                     currentWidth += item.width;
                     totalStretch += item.stretch;
                     totalShrink += item.shrink;
                 } else if (item.type === 'PENALTY' && item.flagged) {
                     breakIndex = i;
                     forcedBreak = true;
-                    break; // Hard stop
+                    break;
                 }
 
-                // CHECK: Did we overflow?
                 if (currentWidth > maxWidth) {
-                    // If we have a previous break point, use it.
                     if (breakIndex !== -1) {
                         forcedBreak = true;
-                        // We found the limit. breakIndex holds the index of the LAST GLUE that fit.
-                        // However, if the current item is the one that broke the camel's back, 
-                        // and breakIndex == i, we might want to break *here*.
-
-                        // If the current item is BOX, and we are over width, we must go back to the previous GLUE (breakIndex).
-                        // If breakIndex is actually 'i' (we are at a glue), we break here.
                     } else {
-                        // The single word is wider than the line (emergency case)
-                        breakIndex = i;
+                        breakIndex = i; // Force break at char
                         forcedBreak = true;
                     }
                     break;
                 }
             }
 
-            // If we reached the end of the paragraph without overflowing
             if (!forcedBreak) {
                 breakIndex = items.length;
             }
 
-            // 2. Calculate Ratio for the chosen break
-            // We need to sum up the width of the content we actually decided to keep [lineStart ... breakIndex]
-            // And exclude the trailing glue if it's a glue break.
-
+            // -- 4. Calculate Alignment & Ratio --
+            // Calculate width of the ACTUAL content we are keeping
             let usedWidth = 0;
-            let usedStretch = 0;
-            let usedShrink = 0;
+            let lineStretch = 0;
+            let lineShrink = 0;
+            let maxAscender = 0;
+            let maxDescender = 0;
 
-            // Refine the loop to calculate exact metrics for the chosen range
-            // We exclude the item at 'breakIndex' if it is GLUE (it becomes invisible newline)
             for (let j = lineStart; j < breakIndex; j++) {
                 const item = items[j];
+                // Metrics for line height
+                if (item.type === 'BOX' || item.type === 'GLUE') {
+                    if (item.style) {
+                        const m = fontService.getVerticalMetrics(item.style.fontFamily, item.style.fontSize);
+                        maxAscender = Math.max(maxAscender, m.ascender);
+                        maxDescender = Math.min(maxDescender, m.descender);
+                    }
+                }
+
                 if (item.type === 'BOX') {
                     usedWidth += item.width;
                 } else if (item.type === 'GLUE') {
+                    // Don't include trailing glue in usedWidth for alignment calculation
+                    // But we do need it for justification math if it's inside the line
+                    // For simplicity: include all, subtract trailing later? 
+                    // Better: Just sum it up.
                     usedWidth += item.width;
-                    usedStretch += item.stretch;
-                    usedShrink += item.shrink;
+                    lineStretch += item.stretch;
+                    lineShrink += item.shrink;
                 }
             }
 
-            const difference = maxWidth - usedWidth;
+            // Default height if empty
+            if (maxAscender === 0) {
+                const m = fontService.getVerticalMetrics(style.fontFamily, style.fontSize);
+                maxAscender = m.ascender;
+                maxDescender = m.descender;
+            }
+
+            // Trim trailing glue width for Alignment calculation
+            let visualWidth = usedWidth;
+            if (breakIndex > lineStart && items[breakIndex - 1].type === 'GLUE') {
+                visualWidth -= items[breakIndex - 1].width;
+            }
+
+            const difference = maxWidth - visualWidth;
             let ratio = 0;
 
-            if (difference > 0) {
-                // Stretch (unless it's the last line of paragraph, then 0)
-                const breakItem = items[breakIndex];
-                if (breakIndex !== items.length && (breakItem.type !== 'PENALTY' || !breakItem.flagged)) {
-                    ratio = usedStretch > 0 ? difference / usedStretch : 0;
-                }
+            // Logic: Only Justify if enabled AND not the last line (unless forced)
+            const breakItem = items[breakIndex];
+            const isLastLine = breakIndex === items.length || (breakItem?.type === 'PENALTY' && breakItem.flagged);
+
+            if (align === 'justify' && !isLastLine) {
+                if (difference > 0) ratio = lineStretch > 0 ? difference / lineStretch : 0;
+                else ratio = lineShrink > 0 ? difference / lineShrink : 0;
+
+                // Safety clamp
+                if (ratio < -1) ratio = -1;
+                if (ratio > 5) ratio = 5;
             } else {
-                // Shrink
-                ratio = usedShrink > 0 ? difference / usedShrink : 0;
+                // Left, Center, Right -> No stretching (except shrinking overflow)
+                if (difference < 0) {
+                    ratio = lineShrink > 0 ? difference / lineShrink : 0;
+                }
             }
 
-            // Safety clamp for rendering (don't explode the glyphs)
-            if (ratio < -1) ratio = -1;
-            if (ratio > 5) ratio = 5; // Prevent massive gaps on forced breaks
-
-            // 3. Render the Line
+            // -- 5. Calculate Start X --
             let x = constraints.marginLeft;
 
+            if (align === 'center') {
+                x += Math.max(0, difference / 2);
+            } else if (align === 'right') {
+                x += Math.max(0, difference);
+            }
+
+            // -- 6. Render Loop --
             for (let j = lineStart; j < breakIndex; j++) {
                 const item = items[j];
-
-                // FIX: Ignore sentinel items (spanIndex -1)
-                if (item.type !== 'PENALTY' && item.source.spanIndex === -1) continue;
+                if (item.type === 'PENALTY') continue;
+                if (item.source.spanIndex === -1) continue;
 
                 if (item.type === 'BOX') {
                     glyphs.push({
@@ -414,38 +423,42 @@ export class LayoutEngine {
                         x: x,
                         y: currentY,
                         width: item.width,
-                        fontFamily: style.fontFamily,
-                        fontSize: style.fontSize,
+                        fontFamily: item.style?.fontFamily || style.fontFamily,
+                        fontSize: item.style?.fontSize || style.fontSize,
+                        bold: item.style?.bold,
+                        italic: item.style?.italic,
+                        color: item.style?.color,
+                        underline: item.style?.underline,
                         source: item.source
                     });
                     x += item.width;
                 } else if (item.type === 'GLUE') {
                     let adjustedWidth = item.width;
-                    if (ratio !== 0) {
+                    // Only apply ratio if we are justifying
+                    if (align === 'justify' || ratio < 0) {
                         if (ratio > 0) adjustedWidth += item.stretch * ratio;
                         else adjustedWidth += item.shrink * ratio;
                     }
 
-                    // Render GLUE as invisible glyph for cursor positioning
                     glyphs.push({
                         char: ' ',
                         x: x,
                         y: currentY,
                         width: adjustedWidth,
-                        fontFamily: style.fontFamily,
-                        fontSize: style.fontSize,
+                        fontFamily: item.style?.fontFamily || style.fontFamily,
+                        fontSize: item.style?.fontSize || style.fontSize,
                         source: item.source
                     });
-
                     x += adjustedWidth;
                 }
             }
 
-            // Move to next line
+            // Advance Y
+            const lineHeight = (maxAscender - maxDescender) * 1.2; // 1.2 multiplier for breathing room
             currentY += lineHeight;
-            lineStart = breakIndex + 1; // Skip the glue/break item
+            lineStart = breakIndex + 1;
 
-            // Safety break to prevent infinite loops if logic fails
+            // Infinite loop guard
             if (lineStart <= lineStart - 1) break;
         }
 

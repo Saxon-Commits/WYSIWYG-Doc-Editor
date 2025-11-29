@@ -1,56 +1,57 @@
-import glyphTableData from './glyph-table.json';
-
-export interface GlyphMetrics {
-    advanceWidth: number;
-}
-
-export interface FontMetrics {
-    unitsPerEm: number;
-    ascender: number;
-    descender: number;
-}
+import opentype from 'opentype.js';
 
 export class FontService {
-    private glyphTable: any;
+    private fonts: Map<string, opentype.Font> = new Map();
+    private activeFont: opentype.Font | null = null;
 
-    constructor() {
-        this.glyphTable = glyphTableData;
+    // Load a font from a URL
+    async loadFont(name: string, url: string): Promise<void> {
+        return new Promise((resolve) => {
+            opentype.load(url, (err, font) => {
+                if (err) {
+                    console.error('Font could not be loaded: ' + err);
+                    // Don't reject, just warn, so app doesn't crash entirely
+                    resolve();
+                } else if (font) {
+                    this.fonts.set(name, font);
+                    this.activeFont = font;
+                    resolve();
+                }
+            });
+        });
+    }
+
+    private getFont(fontFamily: string): opentype.Font | null {
+        // Fallback to active font if specific family not found
+        return this.fonts.get(fontFamily) || this.activeFont;
     }
 
     getGlyphMetrics(fontFamily: string, char: string, fontSize: number): number {
-        const font = this.glyphTable.fonts[fontFamily];
-        if (!font) {
-            console.warn(`Font family ${fontFamily} not found, using default metrics.`);
-            return 10; // Fallback width
-        }
+        const font = this.getFont(fontFamily);
+        if (!font) return fontSize / 2; // Fallback width
 
-        const glyph = font.glyphs[char] || font.glyphs['default'];
+        const glyph = font.charToGlyph(char);
         const unitsPerEm = font.unitsPerEm;
+        const advanceWidth = glyph.advanceWidth || 0;
 
-        // Calculate width in pixels: (advanceWidth / unitsPerEm) * fontSize
-        return (glyph.advanceWidth / unitsPerEm) * fontSize;
+        // Formula: (GlyphUnits / HeadUnits) * FontSize
+        return (advanceWidth / unitsPerEm) * fontSize;
     }
 
     getKerning(fontFamily: string, leftChar: string, rightChar: string, fontSize: number): number {
-        const font = this.glyphTable.fonts[fontFamily];
-        if (!font || !font.kerning) return 0;
+        const font = this.getFont(fontFamily);
+        if (!font) return 0;
 
-        const leftKern = font.kerning[leftChar];
-        if (leftKern && leftKern[rightChar]) {
-            const unitsPerEm = font.unitsPerEm;
-            return (leftKern[rightChar] / unitsPerEm) * fontSize;
-        }
-        return 0;
-    }
+        const leftGlyph = font.charToGlyph(leftChar);
+        const rightGlyph = font.charToGlyph(rightChar);
 
-    getLineHeight(fontSize: number): number {
-        // Simple heuristic for now: 1.2 * fontSize
-        return fontSize * 1.2;
+        const kerning = font.getKerningValue(leftGlyph, rightGlyph);
+        return (kerning / font.unitsPerEm) * fontSize;
     }
 
     getVerticalMetrics(fontFamily: string, fontSize: number): { ascender: number; descender: number; height: number } {
-        const font = this.glyphTable.fonts[fontFamily];
-        if (!font) return { ascender: fontSize, descender: 0, height: fontSize }; // Fallback
+        const font = this.getFont(fontFamily);
+        if (!font) return { ascender: fontSize * 0.8, descender: -fontSize * 0.2, height: fontSize };
 
         const scale = fontSize / font.unitsPerEm;
         return {
@@ -58,6 +59,10 @@ export class FontService {
             descender: font.descender * scale,
             height: (font.ascender - font.descender) * scale
         };
+    }
+
+    getLineHeight(fontSize: number): number {
+        return fontSize * 1.2;
     }
 }
 

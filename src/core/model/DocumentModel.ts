@@ -3,6 +3,8 @@ export interface Style {
     fontSize: number;
     bold?: boolean;
     italic?: boolean;
+    underline?: boolean;
+    color?: string;
 }
 
 export interface Span {
@@ -15,6 +17,7 @@ export interface Paragraph {
     type: 'paragraph';
     children: Span[];
     style?: Style; // Fallback style
+    alignment?: 'left' | 'center' | 'right' | 'justify';
 }
 
 export interface Section {
@@ -33,12 +36,35 @@ export const createSpan = (text: string, style: Style): Span => ({
     style,
 });
 
-export const createParagraph = (children: Span[] = [], style?: Style): Paragraph => ({
-    type: 'paragraph',
-    children,
-    style,
-});
+export function createDocument(sections: Section[] = []): DocumentModel {
+    if (sections.length === 0) {
+        return {
+            sections: [{
+                type: 'section',
+                children: [createParagraph()]
+            }]
+        };
+    }
+    return { sections };
+}
 
+export function createParagraph(text: string = '', style: Style = { fontFamily: 'Roboto-Regular', fontSize: 16 }): Paragraph {
+    return {
+        type: 'paragraph',
+        children: [createSpan(text, style)],
+        alignment: 'left'
+    };
+}
+
+export function setParagraphAlignment(document: DocumentModel, selection: Selection, alignment: 'left' | 'center' | 'right' | 'justify'): void {
+    const { start, end } = getSortedSelection(selection);
+    const section = document.sections[0];
+
+    for (let i = start.paragraphIndex; i <= end.paragraphIndex; i++) {
+        const paragraph = section.children[i];
+        paragraph.alignment = alignment;
+    }
+}
 export function createSection(children: Paragraph[] = []): Section {
     return {
         type: 'section',
@@ -321,7 +347,11 @@ export function splitParagraph(document: DocumentModel, selection: Selection): v
     const subsequentSpans = paragraph.children.slice(cursor.spanIndex + 1);
 
     // 4. Create new paragraph with the new span and subsequent spans
-    const newParagraph = createParagraph([newSpan, ...subsequentSpans]);
+    const newParagraph: Paragraph = {
+        type: 'paragraph',
+        children: [newSpan, ...subsequentSpans],
+        alignment: paragraph.alignment // Preserve alignment
+    };
 
     // 5. Remove moved spans from original paragraph
     paragraph.children = paragraph.children.slice(0, cursor.spanIndex + 1);
@@ -433,6 +463,26 @@ export function applyStyle(document: DocumentModel, selection: Selection, styleC
     }
 }
 
-export const createDocument = (sections: Section[] = []): DocumentModel => ({
-    sections,
-});
+import type { CursorPosition } from '../state/EditorState';
+
+// Helper to get style at a specific point
+export function getStyleAtPosition(document: DocumentModel, position: CursorPosition): Style {
+    const section = document.sections[0];
+    const paragraph = section.children[position.paragraphIndex];
+    const span = paragraph.children[position.spanIndex];
+    return span.style;
+}
+
+// The Toggle Function
+export function toggleStyle(document: DocumentModel, selection: Selection, property: keyof Style): void {
+    const { start } = getSortedSelection(selection);
+    const currentStyle = getStyleAtPosition(document, start);
+
+    // Determine target value (invert current)
+    // Coerce to boolean for toggles (bold, italic, underline)
+    const currentValue = !!currentStyle[property];
+    const newValue = !currentValue;
+
+    // Apply the new forced value across the whole selection
+    applyStyle(document, selection, { [property]: newValue });
+}

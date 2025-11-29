@@ -88,9 +88,29 @@ export class CanvasRenderer {
         this.ctx.textBaseline = 'alphabetic';
 
         for (const glyph of page.glyphs) {
-            this.ctx.font = `${glyph.fontSize}px ${glyph.fontFamily}`;
+            // Construct font string
+            const weight = glyph.bold ? 'bold ' : '';
+            const style = glyph.italic ? 'italic ' : '';
+            this.ctx.font = `${style}${weight}${glyph.fontSize}px ${glyph.fontFamily}`;
+
+            // Set Color
+            this.ctx.fillStyle = glyph.color || '#000000';
+
             // Add yOffset to the glyph's local Y
             this.ctx.fillText(glyph.char, glyph.x, glyph.y + yOffset);
+
+            // Render Underline
+            if (glyph.underline) {
+                const width = this.ctx.measureText(glyph.char).width;
+                const underlineY = glyph.y + yOffset + (glyph.fontSize * 0.1); // Slightly below baseline
+
+                this.ctx.beginPath();
+                this.ctx.moveTo(glyph.x, underlineY);
+                this.ctx.lineTo(glyph.x + width, underlineY);
+                this.ctx.lineWidth = glyph.fontSize / 15;
+                this.ctx.strokeStyle = glyph.color || '#000000';
+                this.ctx.stroke();
+            }
         }
     }
 

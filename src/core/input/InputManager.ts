@@ -1,4 +1,4 @@
-import { insertText, deleteText, splitParagraph } from '../model/DocumentModel';
+import { insertText, deleteText, splitParagraph, getRangeText, deleteRange } from '../model/DocumentModel';
 import type { DocumentModel } from '../model/DocumentModel';
 import { EditorState } from '../state/EditorState';
 
@@ -37,72 +37,171 @@ export class InputManager {
 
     private attachEventListeners() {
         this.textarea.addEventListener('input', (e) => {
-            const target = e.target as HTMLTextAreaElement;
-            const text = target.value;
+            if (!this.editorState.selection) return;
 
-            if (this.editorState.selection && text.length > 0) {
-                insertText(this.documentModel, this.editorState.selection, text);
+            const data = (e as InputEvent).data;
 
-                // Move cursor forward
-                this.editorState.selection.charIndex += text.length;
+            // Check if range selection (start != end)
+            const { anchor, head } = this.editorState.selection;
+            const isRange = anchor.paragraphIndex !== head.paragraphIndex ||
+                anchor.spanIndex !== head.spanIndex ||
+                anchor.charIndex !== head.charIndex;
 
-                this.onUpdate();
+            if (isRange && data) {
+                // If typing over a range, delete range first
+                deleteRange(this.documentModel, this.editorState.selection);
             }
 
-            // Clear textarea
-            target.value = '';
+            if (data) {
+                insertText(this.documentModel, this.editorState.selection, data);
+            } else {
+                // Handle composition or other input types if needed
+            }
+            this.onUpdate();
         });
 
         this.textarea.addEventListener('keydown', (e) => {
             if (!this.editorState.selection) return;
 
+            // Check for composition
+            if (e.isComposing) return;
+
+            // Handle Select All (Cmd+A or Ctrl+A)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+                e.preventDefault();
+
+                const section = this.documentModel.sections[0];
+                if (section.children.length === 0) return;
+
+                const lastParaIndex = section.children.length - 1;
+                const lastPara = section.children[lastParaIndex];
+                const lastSpanIndex = lastPara.children.length - 1;
+                const lastSpan = lastPara.children[lastSpanIndex];
+
+                // Select from start (0,0,0) to end of doc
+                this.editorState.setSelection(
+                    { paragraphIndex: 0, spanIndex: 0, charIndex: 0 },
+                    { paragraphIndex: lastParaIndex, spanIndex: lastSpanIndex, charIndex: lastSpan.text.length }
+                );
+
+                this.onUpdate();
+                return;
+            }
+
+            // Check if range selection
+            const { anchor, head } = this.editorState.selection;
+            const isRange = anchor.paragraphIndex !== head.paragraphIndex ||
+                anchor.spanIndex !== head.spanIndex ||
+                anchor.charIndex !== head.charIndex;
+
             if (e.key === 'Enter') {
                 e.preventDefault();
+                if (isRange) {
+                    deleteRange(this.documentModel, this.editorState.selection);
+                }
                 splitParagraph(this.documentModel, this.editorState.selection);
                 this.onUpdate();
             } else if (e.key === 'Backspace') {
-                deleteText(this.documentModel, this.editorState.selection, 'backward');
-                // Cursor movement is now handled entirely by deleteText
+                if (isRange) {
+                    deleteRange(this.documentModel, this.editorState.selection);
+                } else {
+                    deleteText(this.documentModel, this.editorState.selection, 'backward');
+                }
                 this.onUpdate();
             } else if (e.key === 'Delete') {
-                deleteText(this.documentModel, this.editorState.selection, 'forward');
+                if (isRange) {
+                    deleteRange(this.documentModel, this.editorState.selection);
+                } else {
+                    deleteText(this.documentModel, this.editorState.selection, 'forward');
+                }
                 this.onUpdate();
             } else if (e.key === 'ArrowLeft') {
+                const cursor = this.editorState.selection.head;
                 // Case 1: Middle of paragraph
-                if (this.editorState.selection.charIndex > 0) {
-                    this.editorState.selection.charIndex--;
-                    this.onUpdate();
+                if (cursor.charIndex > 0) {
+                    cursor.charIndex--;
                 }
                 // Case 2: Start of paragraph (Go to end of previous)
-                else if (this.editorState.selection.paragraphIndex > 0) {
-                    const prevIndex = this.editorState.selection.paragraphIndex - 1;
+                else if (cursor.paragraphIndex > 0) {
+                    const prevIndex = cursor.paragraphIndex - 1;
                     const prevParagraph = this.documentModel.sections[0].children[prevIndex];
                     // Assume single span for now
                     const lastSpan = prevParagraph.children[prevParagraph.children.length - 1];
 
-                    this.editorState.selection.paragraphIndex = prevIndex;
-                    this.editorState.selection.spanIndex = prevParagraph.children.length - 1;
-                    this.editorState.selection.charIndex = lastSpan.text.length;
-                    this.onUpdate();
+                    cursor.paragraphIndex = prevIndex;
+                    cursor.spanIndex = prevParagraph.children.length - 1;
+                    cursor.charIndex = lastSpan.text.length;
                 }
+
+                // Sync anchor if shift not pressed (TODO: Handle shift for selection)
+                // For now, always collapse selection on arrow keys
+                this.editorState.selection.anchor = { ...cursor };
+                this.onUpdate();
             } else if (e.key === 'ArrowRight') {
+                const cursor = this.editorState.selection.head;
                 // Get current context
                 const section = this.documentModel.sections[0];
-                const paragraph = section.children[this.editorState.selection.paragraphIndex];
-                const span = paragraph.children[this.editorState.selection.spanIndex];
+                const paragraph = section.children[cursor.paragraphIndex];
+                const span = paragraph.children[cursor.spanIndex];
 
                 // Case 1: Middle of paragraph
-                if (this.editorState.selection.charIndex < span.text.length) {
-                    this.editorState.selection.charIndex++;
-                    this.onUpdate();
+                if (cursor.charIndex < span.text.length) {
+                    cursor.charIndex++;
                 }
                 // Case 2: End of paragraph (Go to start of next)
-                else if (this.editorState.selection.paragraphIndex < section.children.length - 1) {
-                    this.editorState.selection.paragraphIndex++;
-                    this.editorState.selection.spanIndex = 0;
-                    this.editorState.selection.charIndex = 0;
-                    this.onUpdate();
+                else if (cursor.paragraphIndex < section.children.length - 1) {
+                    cursor.paragraphIndex++;
+                    cursor.spanIndex = 0;
+                    cursor.charIndex = 0;
                 }
+
+                // Sync anchor
+                this.editorState.selection.anchor = { ...cursor };
+                this.onUpdate();
+            }
+
+            // Handle Copy/Cut/Paste via keyboard shortcuts if needed, 
+            // but usually 'copy', 'cut', 'paste' events are better.
+        });
+
+        // Clipboard Events
+        this.textarea.addEventListener('copy', (e) => {
+            if (!this.editorState.selection) return;
+            e.preventDefault();
+            const text = getRangeText(this.documentModel, this.editorState.selection);
+            if (e.clipboardData) {
+                e.clipboardData.setData('text/plain', text);
+            }
+        });
+
+        this.textarea.addEventListener('cut', (e) => {
+            if (!this.editorState.selection) return;
+            e.preventDefault();
+            const text = getRangeText(this.documentModel, this.editorState.selection);
+            if (e.clipboardData) {
+                e.clipboardData.setData('text/plain', text);
+            }
+            deleteRange(this.documentModel, this.editorState.selection);
+            this.onUpdate();
+        });
+
+        this.textarea.addEventListener('paste', (e) => {
+            if (!this.editorState.selection) return;
+            e.preventDefault();
+            const text = e.clipboardData?.getData('text/plain');
+            if (text) {
+                // Check range
+                const { anchor, head } = this.editorState.selection;
+                const isRange = anchor.paragraphIndex !== head.paragraphIndex ||
+                    anchor.spanIndex !== head.spanIndex ||
+                    anchor.charIndex !== head.charIndex;
+
+                if (isRange) {
+                    deleteRange(this.documentModel, this.editorState.selection);
+                }
+
+                insertText(this.documentModel, this.editorState.selection, text);
+                this.onUpdate();
             }
         });
 

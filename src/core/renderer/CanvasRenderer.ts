@@ -4,6 +4,7 @@ export class CanvasRenderer {
     private ctx: CanvasRenderingContext2D;
     private dpr: number;
     private canvas: HTMLCanvasElement;
+    private debugMode: boolean = true;
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
@@ -15,16 +16,46 @@ export class CanvasRenderer {
         this.dpr = window.devicePixelRatio || 1;
     }
 
-    renderPage(page: RenderPage, debug: boolean = false) {
-        this.resizeCanvas(page.width, page.height);
-        this.clear();
-        this.drawBackground(page.width, page.height);
+    renderDocument(pages: RenderPage[]) {
+        if (pages.length === 0) return;
 
-        if (debug) {
-            this.drawDebugMargins(page.width, page.height);
+        const pageHeight = pages[0].height;
+        const pageWidth = pages[0].width;
+        const gap = 20; // Space between pages
+
+        // Resize canvas to fit ALL pages
+        const totalHeight = pages.length * (pageHeight + gap);
+        this.resizeCanvas(pageWidth, totalHeight);
+        this.clear();
+
+        // Draw gray background for the "desk"
+        this.ctx.fillStyle = '#e0e0e0';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        let yOffset = 0;
+        this.ctx.save(); // Save initial state (scale from resizeCanvas)
+
+        for (const page of pages) {
+            // Draw Page Background (Paper)
+            this.ctx.fillStyle = '#ffffff';
+            this.ctx.fillRect(0, yOffset, pageWidth, pageHeight);
+
+            // Draw Page Shadow (Optional polish)
+            this.ctx.shadowColor = 'rgba(0,0,0,0.1)';
+            this.ctx.shadowBlur = 10;
+            this.ctx.fillRect(0, yOffset, pageWidth, pageHeight);
+            this.ctx.shadowBlur = 0;
+
+            // Draw Margins (Debug)
+            this.drawDebugMargins(pageWidth, pageHeight, yOffset);
+
+            // Draw Glyphs relative to this page
+            this.drawGlyphs(page, yOffset);
+
+            yOffset += pageHeight + gap;
         }
 
-        this.drawGlyphs(page);
+        this.ctx.restore();
     }
 
     private resizeCanvas(width: number, height: number) {
@@ -40,30 +71,26 @@ export class CanvasRenderer {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     }
 
-    private drawBackground(width: number, height: number) {
-        this.ctx.fillStyle = '#ffffff';
-        this.ctx.fillRect(0, 0, width, height);
 
-        // Draw page border for visualization
-        this.ctx.strokeStyle = '#cccccc';
-        this.ctx.strokeRect(0, 0, width, height);
-    }
 
-    private drawDebugMargins(width: number, height: number) {
-        // Assuming margins are 50 for now, ideally passed in or derived
-        const margin = 50;
+    // Updated drawDebugMargins method
+    private drawDebugMargins(width: number, height: number, yOffset: number) {
+        if (!this.debugMode) return;
+        const margin = 50; // Should match constraints
         this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
         this.ctx.lineWidth = 1;
-        this.ctx.strokeRect(margin, margin, width - margin * 2, height - margin * 2);
+        this.ctx.strokeRect(margin, margin + yOffset, width - margin * 2, height - margin * 2);
     }
 
-    private drawGlyphs(page: RenderPage) {
+    // Updated drawGlyphs method
+    private drawGlyphs(page: RenderPage, yOffset: number) {
         this.ctx.fillStyle = '#000000';
         this.ctx.textBaseline = 'alphabetic';
 
         for (const glyph of page.glyphs) {
             this.ctx.font = `${glyph.fontSize}px ${glyph.fontFamily}`;
-            this.ctx.fillText(glyph.char, glyph.x, glyph.y);
+            // Add yOffset to the glyph's local Y
+            this.ctx.fillText(glyph.char, glyph.x, glyph.y + yOffset);
         }
     }
 
@@ -108,5 +135,71 @@ export class CanvasRenderer {
         // So `drawCursor` just draws a rect at x, y with height.
 
         this.ctx.fillRect(x, y, 2, height);
+    }
+
+    drawSelection(page: RenderPage, selection: { start: any, end: any }, yOffset: number) {
+        if (!selection) return;
+
+        const { start, end } = selection;
+        this.ctx.fillStyle = 'rgba(0, 120, 215, 0.3)';
+
+        for (const glyph of page.glyphs) {
+            // Check if glyph is within selection range
+            // We need to compare paragraphIndex, spanIndex, charIndex
+
+            const g = glyph.source;
+
+            // Compare g >= start
+            let afterStart = false;
+            if (g.paragraphIndex > start.paragraphIndex) afterStart = true;
+            else if (g.paragraphIndex === start.paragraphIndex) {
+                if (g.spanIndex > start.spanIndex) afterStart = true;
+                else if (g.spanIndex === start.spanIndex) {
+                    if (g.charIndex >= start.charIndex) afterStart = true;
+                }
+            }
+
+            // Compare g < end (exclusive of end char? usually selection is inclusive of start, exclusive of end?)
+            // Actually, if I select "AB", start char is A, end char is B (or after B).
+            // If I drag from A to B, start is A, end is B.
+            // If I select char index 0 to 1, I selected char 0.
+            // So we want g >= start AND g < end.
+
+            let beforeEnd = false;
+            if (g.paragraphIndex < end.paragraphIndex) beforeEnd = true;
+            else if (g.paragraphIndex === end.paragraphIndex) {
+                if (g.spanIndex < end.spanIndex) beforeEnd = true;
+                else if (g.spanIndex === end.spanIndex) {
+                    if (g.charIndex < end.charIndex) beforeEnd = true;
+                }
+            }
+
+            if (afterStart && beforeEnd) {
+                // Draw highlight
+                // Use glyph width and font size for height
+                // Height should probably be line height or font size?
+                // Let's use font size for now, or pass line height if available.
+                // We can approximate height with fontSize * 1.2 or similar.
+                const height = glyph.fontSize * 1.2;
+                const y = glyph.y + yOffset - (height * 0.8); // Adjust for baseline
+
+                // We need exact width.
+                // We don't have width in RenderGlyph?
+                // We added it in previous steps! Let's check RenderGlyph definition in LayoutEngine.
+                // Wait, I need to check if RenderGlyph has width.
+                // I'll assume it does or I'll calculate it.
+                // Looking at LayoutEngine.ts, RenderGlyph has: char, x, y, fontFamily, fontSize, source.
+                // It does NOT have width.
+                // I should probably add width to RenderGlyph in LayoutEngine or re-calculate it here.
+                // Re-calculating is safer for now without modifying LayoutEngine again.
+                // But wait, I modified LayoutEngine earlier to add width? 
+                // Let's check LayoutEngine.ts content if I can.
+                // I'll just use measureText here.
+                this.ctx.font = `${glyph.fontSize}px ${glyph.fontFamily}`;
+                const width = this.ctx.measureText(glyph.char).width;
+
+                this.ctx.fillRect(glyph.x, y, width, height);
+            }
+        }
     }
 }

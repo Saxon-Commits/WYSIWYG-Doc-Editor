@@ -32,25 +32,55 @@ export class Viewport {
         this.render();
     }
 
+    private isDragging = false;
+    private anchorPosition: any = null; // Store anchor for drag
+
     private setupEventListeners() {
-        this.canvas.addEventListener('click', (e) => {
-            const rect = this.canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            this.hitTest(x, y);
+        this.canvas.addEventListener('mousedown', (e) => {
+            e.preventDefault(); // Prevent focus loss
+            const { x, y } = this.getMousePos(e);
+            const position = this.layoutEngine.hitTest(x, y);
+
+            if (position) {
+                this.isDragging = true;
+                this.anchorPosition = position;
+                if (this.onSelectionChange) {
+                    this.onSelectionChange(position, position);
+                }
+            }
+        });
+
+        this.canvas.addEventListener('mousemove', (e) => {
+            if (!this.isDragging || !this.anchorPosition) return;
+
+            const { x, y } = this.getMousePos(e);
+            const position = this.layoutEngine.hitTest(x, y);
+
+            if (position) {
+                if (this.onSelectionChange) {
+                    this.onSelectionChange(this.anchorPosition, position);
+                }
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            this.isDragging = false;
+            this.anchorPosition = null;
         });
     }
 
-    private hitTest(x: number, y: number) {
-        console.log(`Hit test at: ${x}, ${y}`);
-        // TODO: Implement actual hit testing logic
+    public onSelectionChange: ((anchor: any, head: any) => void) | null = null;
+
+    private getMousePos(e: MouseEvent) {
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        };
     }
 
     render() {
         const pages = this.layoutEngine.layout(this.document, this.pageConstraints);
-        // For now, just render the first page
-        if (pages.length > 0) {
-            this.renderer.renderPage(pages[0], true);
-        }
+        this.renderer.renderDocument(pages);
     }
 }

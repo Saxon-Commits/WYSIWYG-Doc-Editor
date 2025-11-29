@@ -1,6 +1,6 @@
 import type { DocumentModel, Paragraph } from '../model/DocumentModel';
 import { fontService } from '../font/FontService';
-import type { Selection } from '../state/EditorState';
+import type { CursorPosition } from '../state/EditorState';
 
 export interface RenderGlyph {
     char: string;
@@ -54,32 +54,54 @@ export class LayoutEngine {
         const pages: RenderPage[] = [];
         let currentPage: RenderPage = this.createPage(1, constraints);
 
-        const defaultStyle = { fontFamily: 'Roboto-Regular', fontSize: 16 }; // Should come from document
+        const defaultStyle = { fontFamily: 'Roboto-Regular', fontSize: 16 };
         const metrics = fontService.getVerticalMetrics(defaultStyle.fontFamily, defaultStyle.fontSize);
 
-        // Start at margin + ascender so the top of the text touches the margin, not the bottom.
         let currentY = constraints.marginTop + metrics.ascender;
-
-        // We'll assume a single column layout for now
         const maxWidth = constraints.width - constraints.marginLeft - constraints.marginRight;
 
-        let paragraphIndex = 0;
-        for (const section of document.sections) {
-            for (const node of section.children) {
-                if (node.type === 'paragraph') {
-                    const result = this.layoutParagraph(node, paragraphIndex, maxWidth, currentY, constraints);
+        let currentParagraphIndex = 0;
+        let currentSpanIndex = 0;
+        let currentCharIndex = 0;
 
-                    // Check if we need a new page (simple check for now)
-                    if (result.endY > constraints.height - constraints.marginBottom) {
-                        // In a real implementation we'd handle page breaks better
-                        // For now, just push what we have and start a new page
-                        // This is a simplification
-                    }
+        const section = document.sections[0]; // Assume single section
 
-                    currentPage.glyphs.push(...result.glyphs);
-                    currentY = result.endY + 20; // Paragraph spacing
-                    paragraphIndex++;
+        while (currentParagraphIndex < section.children.length) {
+            const paragraph = section.children[currentParagraphIndex];
+
+            // Layout the paragraph (or partial paragraph)
+            const result = this.layoutParagraph(
+                paragraph,
+                currentParagraphIndex,
+                maxWidth,
+                currentY,
+                constraints,
+                currentSpanIndex,
+                currentCharIndex
+            );
+
+            // Add glyphs to current page
+            currentPage.glyphs.push(...result.glyphs);
+            currentY = result.endY;
+
+            if (!result.completed) {
+                // Paragraph didn't fit, move to next page
+                pages.push(currentPage);
+                currentPage = this.createPage(pages.length + 1, constraints);
+                currentY = constraints.marginTop + metrics.ascender;
+
+                // Resume from where we left off
+                if (result.nextStart) {
+                    currentSpanIndex = result.nextStart.spanIndex;
+                    currentCharIndex = result.nextStart.charIndex;
                 }
+                // Don't increment paragraphIndex, we continue the same paragraph
+            } else {
+                // Paragraph finished
+                currentParagraphIndex++;
+                currentSpanIndex = 0;
+                currentCharIndex = 0;
+                currentY += 20; // Paragraph spacing
             }
         }
 
@@ -88,28 +110,37 @@ export class LayoutEngine {
         return pages;
     }
 
-    hitTest(x: number, y: number): Selection | null {
-        // 1. Find the Page (Assume Page 1 for now)
-        const page = this.lastPages[0];
-        if (!page) return null;
+    hitTest(x: number, y: number): CursorPosition | null {
+        if (this.lastPages.length === 0) return null;
 
-        // 2. Find the Line
-        // We don't explicitly store lines, but we can infer them from Y coordinates.
-        // Or we can just search all glyphs (inefficient but works for small docs).
-        // Better: Group glyphs by Y?
-        // For this task, "Iterate through the rendered glyphs to find which Y-range matches the mouse."
+        const pageHeight = this.lastPages[0].height;
+        const GAP = 20; // Must match CanvasRenderer
+        const totalHeight = pageHeight + GAP;
 
-        // Let's find glyphs that are on the same line as Y.
-        // We'll assume a line height or check if y is within glyph.y - ascender and glyph.y + descender?
-        // Or just find the closest glyph in Y, then X.
+        // 1. Determine which page was clicked
+        const pageIndex = Math.floor(y / totalHeight);
 
+        // Safety check: is this a valid page?
+        if (pageIndex < 0 || pageIndex >= this.lastPages.length) return null;
+
+        const page = this.lastPages[pageIndex];
+
+        // 2. Convert Global Y to Local Page Y
+        // We subtract the total height of previous pages + gaps
+        let localY = y - (pageIndex * totalHeight);
+
+        // Check if click is in the gap (optional, or just clamp)
+        if (localY > pageHeight) return null;
+
+        // 3. Find the Line & Glyph (Existing Logic using localY)
         let closestGlyph: RenderGlyph | null = null;
         let minDist = Infinity;
 
         for (const glyph of page.glyphs) {
-            // Simple distance check
-            const dx = glyph.x + (fontService.getGlyphMetrics(glyph.fontFamily, glyph.char, glyph.fontSize) / 2) - x;
-            const dy = glyph.y - (glyph.fontSize / 3) - y; // Approximate center Y
+            // Note: Use localY here!
+            const width = fontService.getGlyphMetrics(glyph.fontFamily, glyph.char, glyph.fontSize);
+            const dx = glyph.x + (width / 2) - x;
+            const dy = glyph.y - (glyph.fontSize / 3) - localY;
             const dist = Math.sqrt(dx * dx + dy * dy);
 
             if (dist < minDist) {
@@ -119,20 +150,16 @@ export class LayoutEngine {
         }
 
         if (closestGlyph) {
-            // Snap to Nearest: Calculate the distance to the center of the character.
             const width = fontService.getGlyphMetrics(closestGlyph.fontFamily, closestGlyph.char, closestGlyph.fontSize);
             const centerX = closestGlyph.x + width / 2;
 
             let charIndex = closestGlyph.source.charIndex;
 
             if (x > centerX) {
-                // Cursor goes after the character
                 charIndex++;
             }
 
             return {
-                startPage: 1,
-                startOffset: 0, // Not used yet
                 paragraphIndex: closestGlyph.source.paragraphIndex,
                 spanIndex: closestGlyph.source.spanIndex,
                 charIndex: charIndex
@@ -201,9 +228,6 @@ export class LayoutEngine {
             // But tokenizeParagraph returns LayoutItems. LayoutItems don't have style.
             // LayoutItems have width.
             // LayoutParagraph calculates line height based on paragraph.children[0].style.
-            // So adding a BOX item here with 0 width doesn't affect line height directly in layoutParagraph, 
-            // UNLESS layoutParagraph uses the item to determine something?
-            // layoutParagraph uses paragraph.children[0].style.
             // If paragraph.children is empty, layoutParagraph uses default style.
             // So we just need to push the item.
 
@@ -222,7 +246,15 @@ export class LayoutEngine {
         return items;
     }
 
-    private layoutParagraph(paragraph: Paragraph, paragraphIndex: number, maxWidth: number, startY: number, constraints: PageConstraints): { glyphs: RenderGlyph[], endY: number } {
+    private layoutParagraph(
+        paragraph: Paragraph,
+        paragraphIndex: number,
+        maxWidth: number,
+        startY: number,
+        constraints: PageConstraints,
+        startSpanIndex: number = 0,
+        startCharIndex: number = 0
+    ): { glyphs: RenderGlyph[], endY: number, completed: boolean, nextStart?: { spanIndex: number, charIndex: number } } {
         const items = this.tokenizeParagraph(paragraph, paragraphIndex);
         const glyphs: RenderGlyph[] = [];
 
@@ -231,9 +263,50 @@ export class LayoutEngine {
         const lineHeight = fontService.getLineHeight(style.fontSize);
 
         let currentY = startY;
+
+        // Find start item
         let lineStart = 0;
+        if (startSpanIndex > 0 || startCharIndex > 0) {
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                if (item.type !== 'PENALTY' && item.source.spanIndex === startSpanIndex && item.source.charIndex === startCharIndex) {
+                    lineStart = i;
+                    break;
+                }
+            }
+        }
 
         while (lineStart < items.length) {
+            // Check vertical space BEFORE rendering the line
+            // Check for page overflow (Strict Baseline Check)
+            // If the baseline of the CURRENT line is past the bottom margin, break.
+            if (currentY > constraints.height - constraints.marginBottom) {
+                // Overflow!
+                // We need to return the current position as the start for the next page
+                // But we need to be careful: lineStart points to the beginning of the line we *wanted* to render.
+                // So we return that.
+
+                // Safety check: if lineStart is out of bounds or points to the very end
+                if (lineStart >= items.length) break;
+
+                const item = items[lineStart];
+
+                if (item.type === 'PENALTY') {
+                    lineStart++;
+                    continue;
+                }
+
+                return {
+                    glyphs,
+                    endY: currentY,
+                    completed: false,
+                    nextStart: {
+                        spanIndex: item.source.spanIndex,
+                        charIndex: item.source.charIndex
+                    }
+                };
+            }
+
             let currentWidth = 0;
             let totalStretch = 0;
             let totalShrink = 0;
@@ -376,6 +449,6 @@ export class LayoutEngine {
             if (lineStart <= lineStart - 1) break;
         }
 
-        return { glyphs, endY: currentY };
+        return { glyphs, endY: currentY, completed: true };
     }
 }

@@ -62,40 +62,59 @@ function actualRenderLoop(timestamp: number) {
   }
 
   if (currentPages.length > 0) {
-    const page = currentPages[0];
-    viewport.renderer.renderPage(page, true); // Debug mode on
+    viewport.renderer.renderDocument(currentPages);
+
+    // Draw Selection Highlight
+    if (editorState.selection) {
+      const sorted = editorState.getSortedSelection();
+      if (sorted) {
+        let yOffset = 0;
+        const gap = 20;
+        for (const page of currentPages) {
+          viewport.renderer.drawSelection(page, sorted, yOffset);
+          yOffset += page.height + gap;
+        }
+      }
+    }
 
     // Draw Cursor
     if (editorState.selection) {
-      const sel = editorState.selection;
+      // Use head for cursor position
+      const sel = editorState.selection.head;
       let cursorX = 0;
       let cursorY = 0;
       let cursorHeight = 0;
       let found = false;
+      let pageYOffset = 0;
+      const gap = 20;
 
-      // Find the glyph corresponding to the selection
-      for (const glyph of page.glyphs) {
-        if (glyph.source.paragraphIndex === sel.paragraphIndex &&
-          glyph.source.spanIndex === sel.spanIndex) {
+      // Iterate through pages to find the cursor
+      for (const page of currentPages) {
+        // Search glyphs in this page
+        for (const glyph of page.glyphs) {
+          if (glyph.source.paragraphIndex === sel.paragraphIndex &&
+            glyph.source.spanIndex === sel.spanIndex) {
 
-          if (glyph.source.charIndex === sel.charIndex) {
-            // Cursor is before this char
-            cursorX = glyph.x;
-            cursorY = glyph.y;
-            // Height: use font metrics
-            const metrics = fontService.getVerticalMetrics(glyph.fontFamily, glyph.fontSize);
-            cursorHeight = metrics.height;
-            // Adjust Y to be top
-            cursorY -= metrics.ascender;
-            found = true;
-            break;
+            if (glyph.source.charIndex === sel.charIndex) {
+              // Cursor is before this char
+              cursorX = glyph.x;
+              cursorY = glyph.y + pageYOffset; // Add page offset
+              const metrics = fontService.getVerticalMetrics(glyph.fontFamily, glyph.fontSize);
+              cursorHeight = metrics.height;
+              cursorY -= metrics.ascender;
+              found = true;
+              break;
+            }
           }
         }
-      }
 
-      if (!found) {
-        // Check if it's after the last char
-        // We look for charIndex - 1
+        if (found) break;
+
+        // Check if it's after the last char in this page
+        // This is tricky because the paragraph might continue on next page.
+        // We need to check if the selection matches a glyph that is the *last* one before the cursor?
+        // Or just check for charIndex - 1.
+
         for (const glyph of page.glyphs) {
           if (glyph.source.paragraphIndex === sel.paragraphIndex &&
             glyph.source.spanIndex === sel.spanIndex &&
@@ -104,8 +123,7 @@ function actualRenderLoop(timestamp: number) {
             // Cursor is after this char
             const width = fontService.getGlyphMetrics(glyph.fontFamily, glyph.char, glyph.fontSize);
             cursorX = glyph.x + width;
-
-            cursorY = glyph.y;
+            cursorY = glyph.y + pageYOffset;
             const metrics = fontService.getVerticalMetrics(glyph.fontFamily, glyph.fontSize);
             cursorHeight = metrics.height;
             cursorY -= metrics.ascender;
@@ -113,32 +131,26 @@ function actualRenderLoop(timestamp: number) {
             break;
           }
         }
+
+        if (found) break;
+
+        // Fallback for empty paragraph at start of page?
+        // If selection is at start of paragraph, and paragraph starts on this page.
+        // We need to know if the paragraph starts here.
+        // We can check if we have any glyphs for this paragraph on this page.
+
+        // Simplified: Check if we found it. If not, increment offset and try next page.
+        pageYOffset += page.height + gap;
       }
 
-      // Fallback for empty paragraph or start
-      if (!found && sel.charIndex === 0) {
-        // Start of paragraph
-        for (const glyph of page.glyphs) {
-          if (glyph.source.paragraphIndex === sel.paragraphIndex) {
-            cursorX = glyph.x;
-            cursorY = glyph.y;
-            const metrics = fontService.getVerticalMetrics(glyph.fontFamily, glyph.fontSize);
-            cursorHeight = metrics.height;
-            cursorY -= metrics.ascender;
-            found = true;
-            break;
-          }
-        }
-      }
+      // Special case: Empty paragraph (Ghost Box)
+      // The ghost box is a glyph with char ''.
+      // It should be found by the first loop (charIndex === 0).
 
       if (found) {
         viewport.renderer.drawCursor(cursorX, cursorY, cursorHeight, isCursorVisible);
 
         // Update hidden textarea position
-        // We need to convert canvas coordinates to screen coordinates if canvas is not at 0,0
-        // But InputManager sets position absolute on body.
-        // Canvas is in #app.
-        // We should add canvas offset.
         const rect = viewport.canvas.getBoundingClientRect();
         inputManager.updateCursorPosition(rect.left + cursorX, rect.top + cursorY);
       }
@@ -150,32 +162,14 @@ function actualRenderLoop(timestamp: number) {
 
 requestAnimationFrame(actualRenderLoop);
 
-// Add hit testing
-viewport.canvas.addEventListener('mousedown', (event) => {
-  // CRITICAL FIX: Prevent the default browser behavior.
-  // This stops the browser from "blurring" our hidden textarea 
-  // immediately after we try to focus it.
-  event.preventDefault();
+// Handle Selection Change from Viewport
+viewport.onSelectionChange = (anchor, head) => {
+  editorState.setSelection(anchor, head);
+  isCursorVisible = true;
+  lastBlinkTime = performance.now();
+  inputManager.focus();
+  isDirty = true; // Trigger re-render to show selection
+};
 
-  const rect = viewport.canvas.getBoundingClientRect();
-
-  // Account for border/padding if necessary, but clientX/rect is usually fine
-  const logicalX = event.clientX - rect.left;
-  const logicalY = event.clientY - rect.top;
-
-  const selection = viewport.layoutEngine.hitTest(logicalX, logicalY);
-
-  if (selection) {
-    editorState.setSelection(selection);
-
-    // Reset blink state so cursor is visible immediately on click
-    isCursorVisible = true;
-    lastBlinkTime = performance.now();
-
-    // Focus the hidden input so the user can type
-    inputManager.focus();
-
-    // Debug log to confirm focus is held
-    console.log('Selection set & Input focused');
-  }
-});
+// Remove old mousedown listener (it's now handled in Viewport)
+// viewport.canvas.addEventListener('mousedown', ...) -> REMOVED

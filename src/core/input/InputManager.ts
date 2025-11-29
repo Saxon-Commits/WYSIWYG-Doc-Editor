@@ -1,4 +1,4 @@
-import { insertText, deleteText, splitParagraph, getRangeText, deleteRange } from '../model/DocumentModel';
+import { insertText, deleteText, splitParagraph, getRangeText, deleteRange, applyStyle } from '../model/DocumentModel';
 import type { DocumentModel } from '../model/DocumentModel';
 import { EditorState } from '../state/EditorState';
 
@@ -85,6 +85,26 @@ export class InputManager {
                 );
 
                 this.onUpdate();
+                return;
+            }
+
+            // Handle Bold (Cmd+B or Ctrl+B)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+                e.preventDefault();
+                if (this.editorState.selection) {
+                    applyStyle(this.documentModel, this.editorState.selection, { bold: true });
+                    this.onUpdate();
+                }
+                return;
+            }
+
+            // Handle Italic (Cmd+I or Ctrl+I)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+                e.preventDefault();
+                if (this.editorState.selection) {
+                    applyStyle(this.documentModel, this.editorState.selection, { italic: true });
+                    this.onUpdate();
+                }
                 return;
             }
 

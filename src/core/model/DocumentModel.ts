@@ -338,6 +338,101 @@ export function splitParagraph(document: DocumentModel, selection: Selection): v
     selection.anchor = { ...cursor };
 }
 
+// Internal helper to split a span at a specific index
+function splitSpan(paragraph: Paragraph, spanIndex: number, charIndex: number): void {
+    const span = paragraph.children[spanIndex];
+    if (!span) return;
+
+    // If split point is at boundaries, no need to split
+    if (charIndex <= 0 || charIndex >= span.text.length) return;
+
+    const leftText = span.text.substring(0, charIndex);
+    const rightText = span.text.substring(charIndex);
+
+    const leftSpan = createSpan(leftText, { ...span.style });
+    const rightSpan = createSpan(rightText, { ...span.style });
+
+    // Replace original span with two new spans
+    paragraph.children.splice(spanIndex, 1, leftSpan, rightSpan);
+}
+
+export function applyStyle(document: DocumentModel, selection: Selection, styleChange: Partial<Style>): void {
+    const { start, end } = getSortedSelection(selection);
+    const section = document.sections[0];
+
+    // 1. Normalize Start
+    // If start is in middle of span, split it.
+    // We need to be careful because splitting changes indices.
+    // But since we process from start to end, it should be manageable.
+
+    // Start Paragraph
+    const startPara = section.children[start.paragraphIndex];
+    if (start.charIndex > 0 && start.charIndex < startPara.children[start.spanIndex].text.length) {
+        splitSpan(startPara, start.spanIndex, start.charIndex);
+        // After split, the "selection start" is now at the beginning of the NEXT span (the right half).
+        // So we increment spanIndex and reset charIndex to 0.
+        start.spanIndex++;
+        start.charIndex = 0;
+
+        // If start and end were in the same span, we need to adjust end as well.
+        if (start.paragraphIndex === end.paragraphIndex && start.spanIndex - 1 === end.spanIndex) {
+            // This logic is tricky. If start==end originally, we don't apply style usually (unless it's a collapsed cursor style, which is handled differently).
+            // If it's a range within one span:
+            // Span: "Hello World"
+            // Range: "llo" (2 to 5)
+            // Split at 2: "He", "llo World"
+            // Start becomes: Span 1 (index 1), char 0.
+            // End was: Span 0, char 5.
+            // But Span 0 is gone.
+            // End should be: Span 1, char (5-2) = 3.
+            end.spanIndex++;
+            end.charIndex -= (startPara.children[start.spanIndex - 1].text.length); // length of "He"
+        }
+    }
+
+    // 2. Normalize End
+    // If end is in middle of span, split it.
+    const endPara = section.children[end.paragraphIndex];
+    if (end.charIndex > 0 && end.charIndex < endPara.children[end.spanIndex].text.length) {
+        splitSpan(endPara, end.spanIndex, end.charIndex);
+        // After split, the "selection end" is at the end of the LEFT span.
+        // So we don't need to change indices, effectively.
+        // The span at end.spanIndex is now the one we want to style.
+        // The one after it is outside.
+    }
+
+    // 3. Apply Style
+    for (let p = start.paragraphIndex; p <= end.paragraphIndex; p++) {
+        const paragraph = section.children[p];
+
+        let startS = 0;
+        let endS = paragraph.children.length - 1;
+
+        if (p === start.paragraphIndex) {
+            startS = start.spanIndex;
+        }
+        if (p === end.paragraphIndex) {
+            endS = end.spanIndex;
+            // If end char index is 0, we exclude this span (it's the start of the next unselected part)
+            // But wait, if we split at end, end.charIndex is at the split point.
+            // If we split "Hello" at 3 ("Hel", "lo"), end was 3.
+            // Left span "Hel" has length 3.
+            // So we want to include span at end.spanIndex?
+            // If end.charIndex was 3, we split. Left span is index S. Right is S+1.
+            // We want to include S.
+            // If end.charIndex was 0, we didn't split. We exclude S.
+            if (end.charIndex === 0 && p === end.paragraphIndex) {
+                endS = end.spanIndex - 1;
+            }
+        }
+
+        for (let s = startS; s <= endS; s++) {
+            const span = paragraph.children[s];
+            span.style = { ...span.style, ...styleChange };
+        }
+    }
+}
+
 export const createDocument = (sections: Section[] = []): DocumentModel => ({
     sections,
 });

@@ -1,87 +1,118 @@
 import './style.css'
 import { Viewport } from './core/viewport/Viewport';
 import { createDocument, createParagraph, createSection } from './core/model/DocumentModel';
+import type { DocumentModel } from './core/model/DocumentModel';
 import { EditorState } from './core/state/EditorState';
 import { fontService } from './core/font/FontService';
 import { InputManager } from './core/input/InputManager';
 import { Toolbar } from './core/ui/Toolbar';
+import { storageService, supabase } from './core/services/StorageService';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
+const sampleText = 'Start typing your document...';
 
-// Sample text for testing justification
-const sampleText = 'The Knuth-Plass algorithm is a line-breaking algorithm designed for the TeX typesetting system. It optimizes the aesthetic quality of line breaks by minimizing the "badness" of the paragraph as a whole, rather than just line by line. This results in more even spacing and fewer hyphens.';
-
-async function initApp() {
-  // Load all fonts in parallel
-  // Note: ensure these filenames match exactly what is in public/
+// Main Initialization Function
+async function initApp(docId?: string) {
+  // 1. Load Fonts
   await Promise.all([
-    // Roboto Family
-    fontService.loadFont('Roboto', '/Roboto.ttf', { weight: '400', style: 'normal' }),
+    // Roboto
+    fontService.loadFont('Roboto', '/Roboto-Regular.ttf', { weight: '400', style: 'normal' }),
     fontService.loadFont('Roboto', '/Roboto-Bold.ttf', { weight: '700', style: 'normal' }),
     fontService.loadFont('Roboto', '/Roboto-Italic.ttf', { weight: '400', style: 'italic' }),
     fontService.loadFont('Roboto', '/Roboto-BoldItalic.ttf', { weight: '700', style: 'italic' }),
 
-    // Other Fonts (Regular only for now)
-    fontService.loadFont('Open Sans', '/OpenSans.ttf', { weight: '400', style: 'normal' }),
-    fontService.loadFont('Merriweather', '/Merriweather.ttf', { weight: '400', style: 'normal' }),
-    fontService.loadFont('Playfair Display', '/PlayfairDisplay.ttf', { weight: '400', style: 'normal' }),
-    fontService.loadFont('Roboto Mono', '/RobotoMono.ttf', { weight: '400', style: 'normal' }),
-    fontService.loadFont('Montserrat', '/Montserrat.ttf', { weight: '400', style: 'normal' }),
+    // Open Sans
+    fontService.loadFont('Open Sans', '/OpenSans-Regular.ttf', { weight: '400', style: 'normal' }),
+    fontService.loadFont('Open Sans', '/OpenSans-Bold.ttf', { weight: '700', style: 'normal' }),
+    fontService.loadFont('Open Sans', '/OpenSans-Italic.ttf', { weight: '400', style: 'italic' }),
+    fontService.loadFont('Open Sans', '/OpenSans-BoldItalic.ttf', { weight: '700', style: 'italic' }),
+
+    // Merriweather
+    fontService.loadFont('Merriweather', '/Merriweather-Regular.ttf', { weight: '400', style: 'normal' }),
+    fontService.loadFont('Merriweather', '/Merriweather-Bold.ttf', { weight: '700', style: 'normal' }),
+    fontService.loadFont('Merriweather', '/Merriweather-Italic.ttf', { weight: '400', style: 'italic' }),
+    fontService.loadFont('Merriweather', '/Merriweather-BoldItalic.ttf', { weight: '700', style: 'italic' }),
+
+    // Playfair Display
+    fontService.loadFont('Playfair Display', '/PlayfairDisplay-Regular.ttf', { weight: '400', style: 'normal' }),
+    fontService.loadFont('Playfair Display', '/PlayfairDisplay-Bold.ttf', { weight: '700', style: 'normal' }),
+    fontService.loadFont('Playfair Display', '/PlayfairDisplay-Italic.ttf', { weight: '400', style: 'italic' }),
+    fontService.loadFont('Playfair Display', '/PlayfairDisplay-BoldItalic.ttf', { weight: '700', style: 'italic' }),
+
+    // Roboto Mono
+    fontService.loadFont('Roboto Mono', '/RobotoMono-Regular.ttf', { weight: '400', style: 'normal' }),
+    fontService.loadFont('Roboto Mono', '/RobotoMono-Bold.ttf', { weight: '700', style: 'normal' }),
+    fontService.loadFont('Roboto Mono', '/RobotoMono-Italic.ttf', { weight: '400', style: 'italic' }),
+    fontService.loadFont('Roboto Mono', '/RobotoMono-BoldItalic.ttf', { weight: '700', style: 'italic' }),
+
+    // Montserrat
+    fontService.loadFont('Montserrat', '/Montserrat-Regular.ttf', { weight: '400', style: 'normal' }),
+    fontService.loadFont('Montserrat', '/Montserrat-Bold.ttf', { weight: '700', style: 'normal' }),
+    fontService.loadFont('Montserrat', '/Montserrat-Italic.ttf', { weight: '400', style: 'italic' }),
+    fontService.loadFont('Montserrat', '/Montserrat-BoldItalic.ttf', { weight: '700', style: 'italic' }),
   ]);
 
-  // Create a sample document using one of the loaded fonts
-  let doc = createDocument([
-    createSection([
-      createParagraph(sampleText, {
-        fontFamily: 'Merriweather', // Test a Serif font to prove it works!
-        fontSize: 16,
-      }),
-    ]),
-  ]);
+  // 2. Load Document (Cloud or Default)
+  let doc: DocumentModel;
 
-  // Initialize the viewport
+  if (docId) {
+    console.log('Loading doc:', docId);
+    const result = await storageService.load(docId);
+    if (result) {
+      doc = result.doc;
+      console.log('Loaded document from cloud:', result.title);
+    } else {
+      doc = createDocument([
+        createSection([
+          createParagraph('Document not found or error loading.', {
+            fontFamily: 'Roboto',
+            fontSize: 16,
+          }),
+        ]),
+      ]);
+    }
+  } else {
+    doc = createDocument([
+      createSection([
+        createParagraph(sampleText, {
+          fontFamily: 'Merriweather',
+          fontSize: 16,
+        })
+      ])
+    ]);
+  }
+
+  // 3. Initialize App Components
   const viewport = new Viewport(app, doc);
-
-  // Initialize Editor State
   const editorState = new EditorState();
-
-  // Initialize Input Manager
-  let isDirty = true; // Initial layout needed
+  let isDirty = true;
 
   const inputManager = new InputManager(doc, editorState, () => {
     isDirty = true;
-    // Reset blink on input
-    isCursorVisible = true;
     lastBlinkTime = performance.now();
+    isCursorVisible = true;
   });
 
-  // Initialize Toolbar
-  // Assign to variable 'toolbar' so we can reference it inside the callback
   const toolbar = new Toolbar(doc, editorState, () => {
     isDirty = true;
-    inputManager.focus(); // Ensure focus remains
+    inputManager.focus();
   }, (newDoc) => {
-    // Handle Document Load
+    // Handle Load (if triggered internally)
     doc = newDoc;
     viewport.setDocument(doc);
     inputManager.setDocument(doc);
-
-    // FIX: Update Toolbar's document reference
-    toolbar.setDocument(doc);
-
-    editorState.selection = null; // Clear selection
+    toolbar.setDocument(doc); // Fix toolbar reference
+    editorState.selection = null;
     isDirty = true;
     inputManager.focus();
-  });
+  }, docId || undefined);
 
-  // Render Loop State
-  let isCursorVisible = true;
+  // 4. Render Loop
   let lastBlinkTime = 0;
-
+  let isCursorVisible = true;
   let currentPages: any[] = [];
 
-  function actualRenderLoop(timestamp: number) {
-    // Blink logic
+  function renderLoop(timestamp: number) {
     if (timestamp - lastBlinkTime > 500) {
       isCursorVisible = !isCursorVisible;
       lastBlinkTime = timestamp;
@@ -95,7 +126,6 @@ async function initApp() {
     if (currentPages.length > 0) {
       viewport.renderer.renderDocument(currentPages);
 
-      // Draw Selection Highlight
       if (editorState.selection) {
         const sorted = editorState.getSortedSelection();
         if (sorted) {
@@ -106,10 +136,8 @@ async function initApp() {
             yOffset += page.height + gap;
           }
         }
-      }
 
-      // Draw Cursor
-      if (editorState.selection) {
+        // Draw Cursor
         // Use head for cursor position
         const sel = editorState.selection.head;
         let cursorX = 0;
@@ -173,20 +201,47 @@ async function initApp() {
         }
       }
     }
-
-    requestAnimationFrame(actualRenderLoop);
+    requestAnimationFrame(renderLoop);
   }
 
-  requestAnimationFrame(actualRenderLoop);
+  requestAnimationFrame(renderLoop);
 
-  // Handle Selection Change from Viewport
+  // Selection Handler
   viewport.onSelectionChange = (anchor, head) => {
     editorState.setSelection(anchor, head);
     isCursorVisible = true;
     lastBlinkTime = performance.now();
     inputManager.focus();
-    isDirty = true; // Trigger re-render to show selection
+    isDirty = true;
   };
 }
 
-initApp();
+// --- HANDSHAKE LOGIC ---
+
+window.addEventListener('message', async (event) => {
+  // Listen for the Handshake from Invoicy
+  if (event.data.type === 'INIT_SESSION') {
+    const { access_token, refresh_token, docId } = event.data.payload;
+    console.log('Editor: Handshake received!');
+
+    // Set the session so we can save to Supabase
+    const { error } = await supabase.auth.setSession({
+      access_token,
+      refresh_token
+    });
+
+    if (error) console.error('Auth Error:', error);
+
+    // Start the app
+    initApp(docId);
+  }
+});
+
+// Dev Mode Fallback (Run immediately if on localhost and not in iframe)
+if (import.meta.env.DEV && window.self === window.top) {
+  console.log('Dev Mode: Starting automatically...');
+  // Check for document ID in URL for dev mode
+  const urlParams = new URLSearchParams(window.location.search);
+  const docId = urlParams.get('id');
+  initApp(docId || undefined);
+}

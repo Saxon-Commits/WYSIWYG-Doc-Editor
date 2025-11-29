@@ -1,4 +1,4 @@
-import { setParagraphAlignment, toggleStyle, applyStyle, serializeDocument, deserializeDocument } from '../model/DocumentModel';
+import { setParagraphAlignment, toggleStyle, applyStyle, deserializeDocument } from '../model/DocumentModel';
 import type { DocumentModel } from '../model/DocumentModel';
 import type { EditorState } from '../state/EditorState';
 
@@ -11,23 +11,30 @@ const fontOptions = [
     { label: 'Montserrat', value: 'Montserrat' }
 ];
 
+import { storageService } from '../services/StorageService';
+
+// ... (keep existing imports)
+
 export class Toolbar {
     private element: HTMLElement;
     private documentModel: DocumentModel;
     private editorState: EditorState;
     private onUpdate: () => void;
     private onLoadDocument: (doc: DocumentModel) => void;
+    private currentDocId: string | null = null;
 
     constructor(
         documentModel: DocumentModel,
         editorState: EditorState,
         onUpdate: () => void,
-        onLoadDocument: (doc: DocumentModel) => void
+        onLoadDocument: (doc: DocumentModel) => void,
+        initialId?: string
     ) {
         this.documentModel = documentModel;
         this.editorState = editorState;
         this.onUpdate = onUpdate;
         this.onLoadDocument = onLoadDocument;
+        this.currentDocId = initialId || null;
         this.element = document.createElement('div');
         this.element.className = 'editor-toolbar';
         this.setupButtons();
@@ -132,14 +139,44 @@ export class Toolbar {
         this.onUpdate();
     }
 
-    private saveDocument() {
-        const json = serializeDocument(this.documentModel);
-        console.log('Saved Document JSON:', json);
-        localStorage.setItem('test_doc', json);
-        alert('Document saved to localStorage!');
+    private async saveDocument() {
+        // Simple title prompt for now (can be a UI input later)
+        const title = prompt("Document Title:", "My Document") || "Untitled";
+
+        try {
+            const id = await storageService.save(this.documentModel, title, this.currentDocId || undefined);
+            this.currentDocId = id;
+
+            // Update URL without reloading
+            const newUrl = new URL(window.location.href);
+            newUrl.searchParams.set('id', id);
+            window.history.pushState({}, '', newUrl);
+
+            alert('Saved to Cloud!');
+        } catch (e) {
+            console.error(e);
+            alert('Failed to save');
+        }
     }
 
-    private loadDocument() {
+    private async loadDocument() {
+        // For now, maybe just prompt for an ID to load? 
+        // Or keep the localStorage one as a backup?
+        // The user request didn't specify changing the Load button behavior explicitly, 
+        // but "Load Document from URL" implies loading happens on startup.
+        // However, the user said "Update saveDocument" in Toolbar.
+        // I will leave the Load button doing localStorage for now unless I should change it to prompt?
+        // The user instruction said: "Update saveDocument: Call storageService.save..."
+        // It didn't explicitly say "Update loadDocument button".
+        // But it makes sense to have a way to load.
+        // I'll keep the localStorage load for now as a dev tool, or maybe prompt for ID?
+        // Let's stick to the explicit instructions: "Update saveDocument".
+        // I will NOT change loadDocument button behavior unless asked, to avoid breaking existing workflow.
+        // Wait, the user said "Load Document from URL" in the next section for main.ts.
+        // So the Load button might be redundant or could be updated later.
+        // I'll leave it as is (localStorage) to be safe, or maybe comment it out?
+        // I'll leave it as is.
+
         const json = localStorage.getItem('test_doc');
         if (!json) {
             alert('No saved document found in localStorage.');

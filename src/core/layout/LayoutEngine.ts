@@ -6,6 +6,7 @@ export interface RenderGlyph {
     char: string;
     x: number;
     y: number;
+    width: number; // Added width
     fontFamily: string;
     fontSize: number;
     // Metadata for hit testing
@@ -15,6 +16,13 @@ export interface RenderGlyph {
         charIndex: number;
     };
 }
+
+// ... (RenderPage, PageConstraints, LayoutItem types remain the same)
+
+// Inside LayoutEngine class, layoutParagraph method:
+
+// 3. Render the Line
+
 
 export interface RenderPage {
     pageNumber: number;
@@ -300,6 +308,7 @@ export class LayoutEngine {
                         char: item.char,
                         x: x,
                         y: currentY,
+                        width: item.width,
                         fontFamily: style.fontFamily,
                         fontSize: style.fontSize,
                         source: item.source
@@ -311,6 +320,18 @@ export class LayoutEngine {
                         if (ratio > 0) adjustedWidth += item.stretch * ratio;
                         else adjustedWidth += item.shrink * ratio;
                     }
+
+                    // Render GLUE as invisible glyph for cursor positioning
+                    glyphs.push({
+                        char: ' ',
+                        x: x,
+                        y: currentY,
+                        width: adjustedWidth,
+                        fontFamily: style.fontFamily,
+                        fontSize: style.fontSize,
+                        source: item.source
+                    });
+
                     x += adjustedWidth;
                 }
             }

@@ -1,4 +1,4 @@
-import { insertText, deleteText } from '../model/DocumentModel';
+import { insertText, deleteText, splitParagraph } from '../model/DocumentModel';
 import type { DocumentModel } from '../model/DocumentModel';
 import { EditorState } from '../state/EditorState';
 
@@ -56,7 +56,11 @@ export class InputManager {
         this.textarea.addEventListener('keydown', (e) => {
             if (!this.editorState.selection) return;
 
-            if (e.key === 'Backspace') {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                splitParagraph(this.documentModel, this.editorState.selection);
+                this.onUpdate();
+            } else if (e.key === 'Backspace') {
                 deleteText(this.documentModel, this.editorState.selection, 'backward');
 
                 // Move cursor backward

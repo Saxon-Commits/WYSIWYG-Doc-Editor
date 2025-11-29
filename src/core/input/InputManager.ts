@@ -289,4 +289,8 @@ export class InputManager {
         this.textarea.style.left = `${x}px`;
         this.textarea.style.top = `${y}px`;
     }
+
+    public setDocument(document: DocumentModel) {
+        this.documentModel = document;
+    }
 }

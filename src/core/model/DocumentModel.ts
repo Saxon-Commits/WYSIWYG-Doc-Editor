@@ -486,3 +486,22 @@ export function toggleStyle(document: DocumentModel, selection: Selection, prope
     // Apply the new forced value across the whole selection
     applyStyle(document, selection, { [property]: newValue });
 }
+
+export function serializeDocument(document: DocumentModel): string {
+    return JSON.stringify(document);
+}
+
+export function deserializeDocument(json: string): DocumentModel {
+    try {
+        const doc = JSON.parse(json);
+        // Basic validation
+        if (!doc || !Array.isArray(doc.sections)) {
+            throw new Error('Invalid document format');
+        }
+        return doc as DocumentModel;
+    } catch (e) {
+        console.error('Failed to deserialize document', e);
+        // Return empty doc on failure
+        return createDocument();
+    }
+}

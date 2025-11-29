@@ -91,7 +91,7 @@ export class CanvasRenderer {
             // Construct font string
             const weight = glyph.bold ? 'bold ' : '';
             const style = glyph.italic ? 'italic ' : '';
-            this.ctx.font = `${style}${weight}${glyph.fontSize}px ${glyph.fontFamily}`;
+            this.ctx.font = `${style}${weight}${glyph.fontSize}px "${glyph.fontFamily}"`;
 
             // Set Color
             this.ctx.fillStyle = glyph.color || '#000000';

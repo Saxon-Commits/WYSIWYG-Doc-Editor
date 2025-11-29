@@ -83,4 +83,9 @@ export class Viewport {
         const pages = this.layoutEngine.layout(this.document, this.pageConstraints);
         this.renderer.renderDocument(pages);
     }
+
+    public setDocument(document: DocumentModel) {
+        this.document = document;
+        this.render();
+    }
 }

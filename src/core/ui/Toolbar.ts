@@ -1,4 +1,4 @@
-import { setParagraphAlignment, toggleStyle, applyStyle } from '../model/DocumentModel';
+import { setParagraphAlignment, toggleStyle, applyStyle, serializeDocument, deserializeDocument } from '../model/DocumentModel';
 import type { DocumentModel } from '../model/DocumentModel';
 import type { EditorState } from '../state/EditorState';
 
@@ -16,15 +16,18 @@ export class Toolbar {
     private documentModel: DocumentModel;
     private editorState: EditorState;
     private onUpdate: () => void;
+    private onLoadDocument: (doc: DocumentModel) => void;
 
     constructor(
         documentModel: DocumentModel,
         editorState: EditorState,
-        onUpdate: () => void
+        onUpdate: () => void,
+        onLoadDocument: (doc: DocumentModel) => void
     ) {
         this.documentModel = documentModel;
         this.editorState = editorState;
         this.onUpdate = onUpdate;
+        this.onLoadDocument = onLoadDocument;
         this.element = document.createElement('div');
         this.element.className = 'editor-toolbar';
         this.setupButtons();
@@ -82,6 +85,10 @@ export class Toolbar {
                 { label: 'Center', action: () => this.align('center') },
                 { label: 'Right', action: () => this.align('right') },
                 { label: 'Justify', action: () => this.align('justify') },
+            ],
+            [
+                { label: 'Save', action: () => this.saveDocument() },
+                { label: 'Load', action: () => this.loadDocument() },
             ]
         ];
 
@@ -95,9 +102,10 @@ export class Toolbar {
                 // CRITICAL: Prevent focus loss
                 button.addEventListener('mousedown', (e) => {
                     e.preventDefault();
-                    if (this.editorState.selection) {
-                        btn.action();
-                    }
+                    // For Save/Load we might not need selection, but for others we do.
+                    // Save/Load don't depend on selection, but we don't want to lose focus if user cancels or whatever.
+                    // Actually, Load will reload the doc, so focus is reset.
+                    btn.action();
                 });
                 groupDiv.appendChild(button);
             });
@@ -122,5 +130,23 @@ export class Toolbar {
         if (!this.editorState.selection) return;
         setParagraphAlignment(this.documentModel, this.editorState.selection, alignment);
         this.onUpdate();
+    }
+
+    private saveDocument() {
+        const json = serializeDocument(this.documentModel);
+        console.log('Saved Document JSON:', json);
+        localStorage.setItem('test_doc', json);
+        alert('Document saved to localStorage!');
+    }
+
+    private loadDocument() {
+        const json = localStorage.getItem('test_doc');
+        if (!json) {
+            alert('No saved document found in localStorage.');
+            return;
+        }
+        const doc = deserializeDocument(json);
+        console.log('Loaded Document:', doc);
+        this.onLoadDocument(doc);
     }
 }

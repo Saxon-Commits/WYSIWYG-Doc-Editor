@@ -24,7 +24,7 @@ async function initApp() {
   ]);
 
   // Create a sample document using one of the loaded fonts
-  const doc = createDocument([
+  let doc = createDocument([
     createSection([
       createParagraph(sampleText, {
         fontFamily: 'Merriweather', // Test a Serif font to prove it works!
@@ -53,6 +53,14 @@ async function initApp() {
   new Toolbar(doc, editorState, () => {
     isDirty = true;
     inputManager.focus(); // Ensure focus remains
+  }, (newDoc) => {
+    // Handle Document Load
+    doc = newDoc;
+    viewport.setDocument(doc);
+    inputManager.setDocument(doc);
+    editorState.selection = null; // Clear selection
+    isDirty = true;
+    inputManager.focus();
   });
 
   // Render Loop State

@@ -6,6 +6,13 @@ export class FontService {
 
     // Load a font from a URL
     async loadFont(name: string, url: string): Promise<void> {
+        // 1. Load into Browser (Canvas Renderer)
+        // This ensures the browser knows what "Roboto Mono" is when we draw text
+        const fontFace = new FontFace(name, `url(${url})`);
+        await fontFace.load();
+        document.fonts.add(fontFace);
+
+        // 2. Load into Opentype.js (Layout Engine)
         return new Promise((resolve) => {
             opentype.load(url, (err, font) => {
                 if (err) {

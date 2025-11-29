@@ -1,63 +1,67 @@
 import opentype from 'opentype.js';
 
 export class FontService {
+    // Key format: "Family-Weight-Style" (e.g. "Roboto-700-italic")
     private fonts: Map<string, opentype.Font> = new Map();
     private activeFont: opentype.Font | null = null;
 
-    // Load a font from a URL
-    async loadFont(name: string, url: string): Promise<void> {
-        // 1. Load into Browser (Canvas Renderer)
-        // This ensures the browser knows what "Roboto Mono" is when we draw text
-        const fontFace = new FontFace(name, `url(${url})`);
+    async loadFont(name: string, url: string, options: { weight?: string, style?: string } = {}): Promise<void> {
+        const weight = options.weight || '400';
+        const style = options.style || 'normal';
+
+        // 1. Load into Browser (Visuals)
+        const fontFace = new FontFace(name, `url(${url})`, { weight, style });
         await fontFace.load();
         document.fonts.add(fontFace);
 
-        // 2. Load into Opentype.js (Layout Engine)
+        // 2. Load into Opentype (Math)
         return new Promise((resolve) => {
             opentype.load(url, (err, font) => {
                 if (err) {
                     console.error('Font could not be loaded: ' + err);
-                    // Don't reject, just warn, so app doesn't crash entirely
                     resolve();
                 } else if (font) {
-                    this.fonts.set(name, font);
-                    this.activeFont = font;
+                    const key = `${name}-${weight}-${style}`;
+                    this.fonts.set(key, font);
+                    if (!this.activeFont) this.activeFont = font; // Default fallback
                     resolve();
                 }
             });
         });
     }
 
-    private getFont(fontFamily: string): opentype.Font | null {
-        // Fallback to active font if specific family not found
-        return this.fonts.get(fontFamily) || this.activeFont;
+    private getFont(fontFamily: string, bold?: boolean, italic?: boolean): opentype.Font | null {
+        const weight = bold ? '700' : '400';
+        const style = italic ? 'italic' : 'normal';
+        const key = `${fontFamily}-${weight}-${style}`;
+
+        // Try specific variant, then fallback to Regular, then active
+        return this.fonts.get(key)
+            || this.fonts.get(`${fontFamily}-400-normal`)
+            || this.activeFont;
     }
 
-    getGlyphMetrics(fontFamily: string, char: string, fontSize: number): number {
-        const font = this.getFont(fontFamily);
-        if (!font) return fontSize / 2; // Fallback width
+    getGlyphMetrics(fontFamily: string, char: string, fontSize: number, bold?: boolean, italic?: boolean): number {
+        const font = this.getFont(fontFamily, bold, italic);
+        if (!font) return fontSize / 2;
 
         const glyph = font.charToGlyph(char);
         const unitsPerEm = font.unitsPerEm;
         const advanceWidth = glyph.advanceWidth || 0;
-
-        // Formula: (GlyphUnits / HeadUnits) * FontSize
         return (advanceWidth / unitsPerEm) * fontSize;
     }
 
-    getKerning(fontFamily: string, leftChar: string, rightChar: string, fontSize: number): number {
-        const font = this.getFont(fontFamily);
+    getKerning(fontFamily: string, leftChar: string, rightChar: string, fontSize: number, bold?: boolean, italic?: boolean): number {
+        const font = this.getFont(fontFamily, bold, italic);
         if (!font) return 0;
 
         const leftGlyph = font.charToGlyph(leftChar);
         const rightGlyph = font.charToGlyph(rightChar);
-
-        const kerning = font.getKerningValue(leftGlyph, rightGlyph);
-        return (kerning / font.unitsPerEm) * fontSize;
+        return (font.getKerningValue(leftGlyph, rightGlyph) / font.unitsPerEm) * fontSize;
     }
 
-    getVerticalMetrics(fontFamily: string, fontSize: number): { ascender: number; descender: number; height: number } {
-        const font = this.getFont(fontFamily);
+    getVerticalMetrics(fontFamily: string, fontSize: number, bold?: boolean, italic?: boolean): { ascender: number; descender: number; height: number } {
+        const font = this.getFont(fontFamily, bold, italic);
         if (!font) return { ascender: fontSize * 0.8, descender: -fontSize * 0.2, height: fontSize };
 
         const scale = fontSize / font.unitsPerEm;

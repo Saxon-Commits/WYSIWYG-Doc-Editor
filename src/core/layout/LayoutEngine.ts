@@ -199,23 +199,23 @@ export class LayoutEngine {
                 const source = { paragraphIndex, spanIndex, charIndex: i };
 
                 if (char === ' ') {
-                    const width = fontService.getGlyphMetrics(style.fontFamily, ' ', style.fontSize);
+                    const width = fontService.getGlyphMetrics(style.fontFamily, ' ', style.fontSize, style.bold, style.italic);
                     items.push({
                         type: 'GLUE',
                         width,
                         stretch: width * 0.5,
                         shrink: width * 0.3,
                         originalChar: ' ',
-                        style: style, // <--- ADD THIS
+                        style: style,
                         source
                     });
                 } else {
-                    const width = fontService.getGlyphMetrics(style.fontFamily, char, style.fontSize);
+                    const width = fontService.getGlyphMetrics(style.fontFamily, char, style.fontSize, style.bold, style.italic);
                     items.push({
                         type: 'BOX',
                         width,
                         char,
-                        style: style, // <--- ADD THIS
+                        style: style,
                         source
                     });
                 }
@@ -349,7 +349,7 @@ export class LayoutEngine {
                 // Metrics for line height
                 if (item.type === 'BOX' || item.type === 'GLUE') {
                     if (item.style) {
-                        const m = fontService.getVerticalMetrics(item.style.fontFamily, item.style.fontSize);
+                        const m = fontService.getVerticalMetrics(item.style.fontFamily, item.style.fontSize, item.style.bold, item.style.italic);
                         maxAscender = Math.max(maxAscender, m.ascender);
                         maxDescender = Math.min(maxDescender, m.descender);
                     }

@@ -15,12 +15,18 @@ async function initApp() {
   // Load all fonts in parallel
   // Note: ensure these filenames match exactly what is in public/
   await Promise.all([
-    fontService.loadFont('Open Sans', '/OpenSans.ttf'),
-    fontService.loadFont('Roboto', '/Roboto.ttf'),
-    fontService.loadFont('Merriweather', '/Merriweather.ttf'),
-    fontService.loadFont('Playfair Display', '/PlayfairDisplay.ttf'),
-    fontService.loadFont('Roboto Mono', '/RobotoMono.ttf'),
-    fontService.loadFont('Montserrat', '/Montserrat.ttf')
+    // Roboto Family
+    fontService.loadFont('Roboto', '/Roboto.ttf', { weight: '400', style: 'normal' }),
+    fontService.loadFont('Roboto', '/Roboto-Bold.ttf', { weight: '700', style: 'normal' }),
+    fontService.loadFont('Roboto', '/Roboto-Italic.ttf', { weight: '400', style: 'italic' }),
+    fontService.loadFont('Roboto', '/Roboto-BoldItalic.ttf', { weight: '700', style: 'italic' }),
+
+    // Other Fonts (Regular only for now)
+    fontService.loadFont('Open Sans', '/OpenSans.ttf', { weight: '400', style: 'normal' }),
+    fontService.loadFont('Merriweather', '/Merriweather.ttf', { weight: '400', style: 'normal' }),
+    fontService.loadFont('Playfair Display', '/PlayfairDisplay.ttf', { weight: '400', style: 'normal' }),
+    fontService.loadFont('Roboto Mono', '/RobotoMono.ttf', { weight: '400', style: 'normal' }),
+    fontService.loadFont('Montserrat', '/Montserrat.ttf', { weight: '400', style: 'normal' }),
   ]);
 
   // Create a sample document using one of the loaded fonts

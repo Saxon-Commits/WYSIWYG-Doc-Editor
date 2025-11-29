@@ -215,7 +215,7 @@ export class CanvasRenderer {
                 // But wait, I modified LayoutEngine earlier to add width? 
                 // Let's check LayoutEngine.ts content if I can.
                 // I'll just use measureText here.
-                this.ctx.font = `${glyph.fontSize}px ${glyph.fontFamily}`;
+                this.ctx.font = `${glyph.fontSize}px "${glyph.fontFamily}"`;
                 const width = this.ctx.measureText(glyph.char).width;
 
                 this.ctx.fillRect(glyph.x, y, width, height);

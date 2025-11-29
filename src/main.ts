@@ -12,14 +12,22 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 const sampleText = 'The Knuth-Plass algorithm is a line-breaking algorithm designed for the TeX typesetting system. It optimizes the aesthetic quality of line breaks by minimizing the "badness" of the paragraph as a whole, rather than just line by line. This results in more even spacing and fewer hyphens.';
 
 async function initApp() {
-  // Load Open Sans from the public folder
-  await fontService.loadFont('Open Sans', '/OpenSans.ttf');
+  // Load all fonts in parallel
+  // Note: ensure these filenames match exactly what is in public/
+  await Promise.all([
+    fontService.loadFont('Open Sans', '/OpenSans.ttf'),
+    fontService.loadFont('Roboto', '/Roboto.ttf'),
+    fontService.loadFont('Merriweather', '/Merriweather.ttf'),
+    fontService.loadFont('Playfair Display', '/PlayfairDisplay.ttf'),
+    fontService.loadFont('Roboto Mono', '/RobotoMono.ttf'),
+    fontService.loadFont('Montserrat', '/Montserrat.ttf')
+  ]);
 
-  // Create a sample document
+  // Create a sample document using one of the loaded fonts
   const doc = createDocument([
     createSection([
       createParagraph(sampleText, {
-        fontFamily: 'Open Sans',
+        fontFamily: 'Merriweather', // Test a Serif font to prove it works!
         fontSize: 16,
       }),
     ]),

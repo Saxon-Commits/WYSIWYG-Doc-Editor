@@ -3,12 +3,12 @@ import type { DocumentModel } from '../model/DocumentModel';
 import type { EditorState } from '../state/EditorState';
 
 const fontOptions = [
-    { label: 'Roboto', value: "'Roboto', sans-serif" },
-    { label: 'Open Sans', value: "'Open Sans', sans-serif" },
-    { label: 'Merriweather', value: "'Merriweather', serif" },
-    { label: 'Playfair Display', value: "'Playfair Display', serif" },
-    { label: 'Roboto Mono', value: "'Roboto Mono', monospace" },
-    { label: 'Arial', value: "'Arial', sans-serif" },
+    { label: 'Roboto', value: 'Roboto' },
+    { label: 'Open Sans', value: 'Open Sans' },
+    { label: 'Merriweather', value: 'Merriweather' },
+    { label: 'Playfair Display', value: 'Playfair Display' },
+    { label: 'Roboto Mono', value: 'Roboto Mono' },
+    { label: 'Montserrat', value: 'Montserrat' }
 ];
 
 export class Toolbar {

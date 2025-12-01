@@ -26,6 +26,10 @@ export class StorageService {
                 .eq('id', id);
 
             if (error) throw error;
+
+            // Notify parent window
+            window.parent.postMessage({ type: 'DOCUMENT_SAVED', payload: { id } }, '*');
+
             return id;
         } else {
             // Create new
@@ -36,6 +40,10 @@ export class StorageService {
                 .single();
 
             if (error) throw error;
+
+            // Notify parent window
+            window.parent.postMessage({ type: 'DOCUMENT_SAVED', payload: { id: data.id } }, '*');
+
             return data.id;
         }
     }

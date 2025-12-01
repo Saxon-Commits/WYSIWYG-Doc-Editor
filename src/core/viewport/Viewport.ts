@@ -42,6 +42,19 @@ export class Viewport {
             const position = this.layoutEngine.hitTest(x, y);
 
             if (position) {
+                // Checkbox Toggle Logic
+                if (position.spanIndex === -1) {
+                    const section = this.document.sections[0];
+                    const paragraph = section.children[position.paragraphIndex];
+                    if (paragraph.listType === 'check') {
+                        paragraph.checked = !paragraph.checked;
+                        if (this.onDocumentChange) {
+                            this.onDocumentChange();
+                        }
+                        return; // Stop selection change
+                    }
+                }
+
                 this.isDragging = true;
                 this.anchorPosition = position;
                 if (this.onSelectionChange) {
@@ -70,6 +83,7 @@ export class Viewport {
     }
 
     public onSelectionChange: ((anchor: any, head: any) => void) | null = null;
+    public onDocumentChange: (() => void) | null = null;
 
     private getMousePos(e: MouseEvent) {
         const rect = this.canvas.getBoundingClientRect();
@@ -81,7 +95,7 @@ export class Viewport {
 
     render() {
         const pages = this.layoutEngine.layout(this.document, this.pageConstraints);
-        this.renderer.renderDocument(pages);
+        this.renderer.renderDocument(pages, this.pageConstraints);
     }
 
     public setDocument(document: DocumentModel) {

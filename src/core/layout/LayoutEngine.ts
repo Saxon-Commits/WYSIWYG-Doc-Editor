@@ -3,6 +3,7 @@ import { fontService } from '../font/FontService';
 import type { CursorPosition } from '../state/EditorState';
 
 export interface RenderGlyph {
+    type?: 'text' | 'checkbox_checked' | 'checkbox_unchecked';
     char: string;
     x: number;
     y: number;
@@ -58,13 +59,21 @@ export class LayoutEngine {
         const defaultStyle = { fontFamily: 'Roboto-Regular', fontSize: 16 };
         const metrics = fontService.getVerticalMetrics(defaultStyle.fontFamily, defaultStyle.fontSize);
 
-        let currentY = constraints.marginTop + metrics.ascender;
+        let currentY = constraints.marginTop;
         const maxWidth = constraints.width - constraints.marginLeft - constraints.marginRight;
 
         const section = document.sections[0]; // Assume single section
 
+        let currentListIndex = 1;
+
         for (let i = 0; i < section.children.length; i++) {
             const paragraph = section.children[i];
+
+            // Reset list index if not a numbered list
+            if (paragraph.listType !== 'number') {
+                currentListIndex = 1;
+            }
+
             let startSpanIndex = 0;
             let startCharIndex = 0;
             let completed = false;
@@ -77,7 +86,8 @@ export class LayoutEngine {
                     currentY,
                     constraints,
                     startSpanIndex,
-                    startCharIndex
+                    startCharIndex,
+                    currentListIndex
                 );
 
                 // Add glyphs to current page
@@ -94,8 +104,12 @@ export class LayoutEngine {
 
                 if (result.completed) {
                     completed = true;
-                    // Paragraph spacing
-                    currentY += 20;
+                    // Paragraph spacing - Reduced from 20 to 10
+                    currentY += 10;
+
+                    if (paragraph.listType === 'number') {
+                        currentListIndex++;
+                    }
                 } else {
                     // Overflow
                     pages.push(currentPage);
@@ -194,45 +208,44 @@ export class LayoutEngine {
             const style = span.style;
             const text = span.text;
 
-            for (let i = 0; i < text.length; i++) {
-                const char = text[i];
-                const source = { paragraphIndex, spanIndex, charIndex: i };
+            if (text.length === 0) {
+                // Handle empty span (Ghost Box)
+                items.push({
+                    type: 'BOX',
+                    width: 0,
+                    char: '',
+                    style,
+                    source: { paragraphIndex, spanIndex, charIndex: 0 }
+                });
+            } else {
+                for (let i = 0; i < text.length; i++) {
+                    const char = text[i];
+                    const source = { paragraphIndex, spanIndex, charIndex: i };
 
-                if (char === ' ') {
-                    const width = fontService.getGlyphMetrics(style.fontFamily, ' ', style.fontSize, style.bold, style.italic);
-                    items.push({
-                        type: 'GLUE',
-                        width,
-                        stretch: width * 0.5,
-                        shrink: width * 0.3,
-                        originalChar: ' ',
-                        style: style,
-                        source
-                    });
-                } else {
-                    const width = fontService.getGlyphMetrics(style.fontFamily, char, style.fontSize, style.bold, style.italic);
-                    items.push({
-                        type: 'BOX',
-                        width,
-                        char,
-                        style: style,
-                        source
-                    });
+                    if (char === ' ') {
+                        const width = fontService.getGlyphMetrics(style.fontFamily, ' ', style.fontSize, style.bold, style.italic);
+                        items.push({
+                            type: 'GLUE',
+                            width,
+                            stretch: width * 0.5,
+                            shrink: width * 0.3,
+                            originalChar: ' ',
+                            style: style,
+                            source
+                        });
+                    } else {
+                        const width = fontService.getGlyphMetrics(style.fontFamily, char, style.fontSize, style.bold, style.italic);
+                        items.push({
+                            type: 'BOX',
+                            width,
+                            char,
+                            style: style,
+                            source
+                        });
+                    }
                 }
             }
             spanIndex++;
-        }
-
-        // FIX: Handle empty paragraphs (Ghost Box)
-        if (items.length === 0) {
-            const style = paragraph.children[0]?.style || { fontFamily: 'Roboto-Regular', fontSize: 16 };
-            items.push({
-                type: 'BOX',
-                width: 0,
-                char: '',
-                style,
-                source: { paragraphIndex, spanIndex: 0, charIndex: 0 }
-            });
         }
 
         // Add a finishing penalty to force a break at the end
@@ -249,7 +262,8 @@ export class LayoutEngine {
         startY: number,
         constraints: PageConstraints,
         startSpanIndex: number = 0,
-        startCharIndex: number = 0
+        startCharIndex: number = 0,
+        listIndex: number = 1 // Added listIndex
     ): { glyphs: RenderGlyph[], endY: number, completed: boolean, nextStart?: { spanIndex: number, charIndex: number } } {
         const items = this.tokenizeParagraph(paragraph, paragraphIndex);
         const glyphs: RenderGlyph[] = [];
@@ -270,14 +284,25 @@ export class LayoutEngine {
             }
         }
 
+        // List Handling
+        const listType = paragraph.listType;
+        // Indentation for the text content
+        const listPadding = listType ? 40 : 0;
+        // Indentation for the marker itself relative to margin
+        const markerOffset = listType ? 15 : 0;
+
         const align = paragraph.alignment || 'left';
+
+        // Adjust max width for list indentation
+        const effectiveMaxWidth = maxWidth - listPadding;
 
         while (lineStart < items.length) {
             // -- 1. Height Calculation --
             // Scan ahead to find line height (max ascender/descender in the line)
             // Ideally we do this after finding the break, but for now we assume standard height or calc later.
             // Let's use a base line height for the overflow check to be safe.
-            const baseLineHeight = fontService.getLineHeight(style.fontSize);
+            const spacingMultiplier = paragraph.lineSpacing || 1.15; // Default to 1.15 like Google Docs
+            const baseLineHeight = fontService.getLineHeight(style.fontSize) * spacingMultiplier;
 
             // -- 2. Overflow Check --
             if (currentY + baseLineHeight > constraints.height - constraints.marginBottom) {
@@ -321,7 +346,8 @@ export class LayoutEngine {
                     break;
                 }
 
-                if (currentWidth > maxWidth) {
+                // Use effectiveMaxWidth here to prevent overflow
+                if (currentWidth > effectiveMaxWidth) {
                     if (breakIndex !== -1) {
                         forcedBreak = true;
                     } else {
@@ -381,7 +407,8 @@ export class LayoutEngine {
                 visualWidth -= items[breakIndex - 1].width;
             }
 
-            const difference = maxWidth - visualWidth;
+            // Use effectiveMaxWidth for alignment calculation
+            const difference = effectiveMaxWidth - visualWidth;
             let ratio = 0;
 
             // Logic: Only Justify if enabled AND not the last line (unless forced)
@@ -403,7 +430,7 @@ export class LayoutEngine {
             }
 
             // -- 5. Calculate Start X --
-            let x = constraints.marginLeft;
+            let x = constraints.marginLeft + listPadding;
 
             if (align === 'center') {
                 x += Math.max(0, difference / 2);
@@ -411,9 +438,46 @@ export class LayoutEngine {
                 x += Math.max(0, difference);
             }
 
+            // Calculate Baseline
+            // currentY is now the TOP of the line box.
+            // Baseline is top + ascender.
+            const baselineY = currentY + maxAscender;
+
+            // Render List Marker (Only on first line of paragraph)
+            if (lineStart === 0 && listType) {
+                let markerChar = '•';
+                let glyphType: 'text' | 'checkbox_checked' | 'checkbox_unchecked' = 'text';
+
+                if (listType === 'number') {
+                    markerChar = `${listIndex}.`;
+                } else if (listType === 'check') {
+                    markerChar = ''; // No text char for checkbox
+                    glyphType = paragraph.checked ? 'checkbox_checked' : 'checkbox_unchecked';
+                }
+
+                glyphs.push({
+                    type: glyphType,
+                    char: markerChar,
+                    x: constraints.marginLeft + markerOffset, // Draw at indented position
+                    y: baselineY,
+                    width: 20, // Approx width
+                    fontFamily: style.fontFamily,
+                    fontSize: style.fontSize,
+                    color: '#000000',
+                    source: { paragraphIndex, spanIndex: -1, charIndex: -1 }, // Special source
+                });
+            }
+
             // -- 6. Render Loop --
+            let maxFontSize = 0;
             for (let j = lineStart; j < breakIndex; j++) {
                 const item = items[j];
+                if (item.type === 'BOX' || item.type === 'GLUE') {
+                    if (item.style) {
+                        maxFontSize = Math.max(maxFontSize, item.style.fontSize);
+                    }
+                }
+
                 if (item.type === 'PENALTY') continue;
                 if (item.source.spanIndex === -1) continue;
 
@@ -421,7 +485,7 @@ export class LayoutEngine {
                     glyphs.push({
                         char: item.char,
                         x: x,
-                        y: currentY,
+                        y: baselineY,
                         width: item.width,
                         fontFamily: item.style?.fontFamily || style.fontFamily,
                         fontSize: item.style?.fontSize || style.fontSize,
@@ -443,7 +507,7 @@ export class LayoutEngine {
                     glyphs.push({
                         char: ' ',
                         x: x,
-                        y: currentY,
+                        y: baselineY,
                         width: adjustedWidth,
                         fontFamily: item.style?.fontFamily || style.fontFamily,
                         fontSize: item.style?.fontSize || style.fontSize,
@@ -453,8 +517,11 @@ export class LayoutEngine {
                 }
             }
 
+            if (maxFontSize === 0) maxFontSize = style.fontSize;
+
             // Advance Y
-            const lineHeight = (maxAscender - maxDescender) * 1.2; // 1.2 multiplier for breathing room
+            // Use maxFontSize as base for line height to allow tighter spacing (like CSS line-height)
+            const lineHeight = maxFontSize * spacingMultiplier;
             currentY += lineHeight;
             lineStart = breakIndex + 1;
 

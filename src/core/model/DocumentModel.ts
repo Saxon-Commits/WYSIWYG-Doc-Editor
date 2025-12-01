@@ -18,6 +18,9 @@ export interface Paragraph {
     children: Span[];
     style?: Style; // Fallback style
     alignment?: 'left' | 'center' | 'right' | 'justify';
+    listType?: 'bullet' | 'number' | 'check';
+    checked?: boolean;
+    lineSpacing?: number; // Multiplier (e.g., 1.0, 1.5, 2.0)
 }
 
 export interface Section {
@@ -63,6 +66,39 @@ export function setParagraphAlignment(document: DocumentModel, selection: Select
     for (let i = start.paragraphIndex; i <= end.paragraphIndex; i++) {
         const paragraph = section.children[i];
         paragraph.alignment = alignment;
+    }
+}
+
+export function setParagraphSpacing(document: DocumentModel, selection: Selection, spacing: number): void {
+    const { start, end } = getSortedSelection(selection);
+    const section = document.sections[0];
+
+    for (let i = start.paragraphIndex; i <= end.paragraphIndex; i++) {
+        const paragraph = section.children[i];
+        paragraph.lineSpacing = spacing;
+    }
+}
+
+export function toggleList(document: DocumentModel, selection: Selection, listType: 'bullet' | 'number' | 'check'): void {
+    const { start, end } = getSortedSelection(selection);
+    const section = document.sections[0];
+
+    for (let i = start.paragraphIndex; i <= end.paragraphIndex; i++) {
+        const paragraph = section.children[i];
+
+        if (paragraph.listType === listType) {
+            // Toggle off
+            delete paragraph.listType;
+            delete paragraph.checked;
+        } else {
+            // Toggle on (or switch type)
+            paragraph.listType = listType;
+            if (listType === 'check') {
+                paragraph.checked = false;
+            } else {
+                delete paragraph.checked;
+            }
+        }
     }
 }
 export function createSection(children: Paragraph[] = []): Section {
@@ -201,12 +237,8 @@ function getSortedSelection(selection: Selection) {
 }
 
 export function insertText(document: DocumentModel, selection: Selection, text: string): void {
-    const section = document.sections[0]; // Assume single section for now
-    if (!section) return;
-
-    // Use head for insertion point
     const cursor = selection.head;
-    const paragraph = section.children[cursor.paragraphIndex];
+    const paragraph = document.sections[0].children[cursor.paragraphIndex];
     if (!paragraph) return;
 
     const span = paragraph.children[cursor.spanIndex];
@@ -216,11 +248,77 @@ export function insertText(document: DocumentModel, selection: Selection, text: 
     const after = span.text.substring(cursor.charIndex);
 
     span.text = before + text + after;
-
-    // Update cursor position
     cursor.charIndex += text.length;
+    selection.anchor = { ...cursor };
+}
 
-    // Sync anchor to head (collapse selection)
+export function insertFragment(document: DocumentModel, selection: Selection, paragraphs: Paragraph[]): void {
+    if (paragraphs.length === 0) return;
+
+    const cursor = selection.head;
+    const section = document.sections[0];
+
+    // Case 1: Single Paragraph Paste
+    if (paragraphs.length === 1) {
+        const para = paragraphs[0];
+        const targetPara = section.children[cursor.paragraphIndex];
+        const targetSpan = targetPara.children[cursor.spanIndex];
+
+        // Split current span
+        const beforeText = targetSpan.text.substring(0, cursor.charIndex);
+        const afterText = targetSpan.text.substring(cursor.charIndex);
+
+        targetSpan.text = beforeText;
+
+        // Insert new spans
+        // We need to clone to avoid reference issues
+        const newSpans = para.children.map(s => ({ ...s }));
+
+        // Create span for after text
+        const afterSpan = createSpan(afterText, targetSpan.style);
+
+        // Insert: [CurrentSpan(before)] ...[NewSpans]... [AfterSpan] ...[Rest]
+        targetPara.children.splice(cursor.spanIndex + 1, 0, ...newSpans, afterSpan);
+
+        // Update cursor
+        cursor.spanIndex += newSpans.length;
+        cursor.charIndex = 0; // At start of afterSpan
+        selection.anchor = { ...cursor };
+        return;
+    }
+
+    // Case 2: Multi-Paragraph Paste
+    // 1. Split current paragraph at cursor
+    splitParagraph(document, selection);
+    // Cursor is now at start of the second half (the "after" part)
+
+    const beforeParaIndex = cursor.paragraphIndex - 1;
+    const afterParaIndex = cursor.paragraphIndex;
+
+    const beforePara = section.children[beforeParaIndex];
+    // The afterPara will be appended to the last new paragraph
+    const afterPara = section.children[afterParaIndex];
+
+    // 2. Append first new paragraph's content to beforePara
+    const firstNew = paragraphs[0];
+    beforePara.children.push(...firstNew.children.map(s => ({ ...s })));
+
+    // 3. Insert middle paragraphs
+    const middleParas = paragraphs.slice(1, paragraphs.length - 1).map(p => ({ ...p, children: p.children.map(s => ({ ...s })) }));
+    section.children.splice(afterParaIndex, 0, ...middleParas);
+
+    // 4. Prepend last new paragraph's content to afterPara
+    const lastNew = paragraphs[paragraphs.length - 1];
+    const lastNewSpans = lastNew.children.map(s => ({ ...s }));
+    afterPara.children.unshift(...lastNewSpans);
+
+    // Update cursor
+    // Cursor should be after the inserted content in afterPara
+    // which is at index: lastNewSpans.length
+    cursor.paragraphIndex = afterParaIndex + middleParas.length;
+    cursor.spanIndex = lastNewSpans.length;
+    cursor.charIndex = 0;
+
     selection.anchor = { ...cursor };
 }
 
@@ -350,7 +448,9 @@ export function splitParagraph(document: DocumentModel, selection: Selection): v
     const newParagraph: Paragraph = {
         type: 'paragraph',
         children: [newSpan, ...subsequentSpans],
-        alignment: paragraph.alignment // Preserve alignment
+        alignment: paragraph.alignment, // Preserve alignment
+        listType: paragraph.listType, // Preserve list type
+        checked: paragraph.listType === 'check' ? false : undefined // Reset checked for new item
     };
 
     // 5. Remove moved spans from original paragraph
@@ -444,15 +544,12 @@ export function applyStyle(document: DocumentModel, selection: Selection, styleC
         if (p === end.paragraphIndex) {
             endS = end.spanIndex;
             // If end char index is 0, we exclude this span (it's the start of the next unselected part)
-            // But wait, if we split at end, end.charIndex is at the split point.
-            // If we split "Hello" at 3 ("Hel", "lo"), end was 3.
-            // Left span "Hel" has length 3.
-            // So we want to include span at end.spanIndex?
-            // If end.charIndex was 3, we split. Left span is index S. Right is S+1.
-            // We want to include S.
-            // If end.charIndex was 0, we didn't split. We exclude S.
+            // UNLESS it's an empty span (placeholder) where we want to apply style
             if (end.charIndex === 0 && p === end.paragraphIndex) {
-                endS = end.spanIndex - 1;
+                const span = paragraph.children[end.spanIndex];
+                if (span.text.length > 0) {
+                    endS = end.spanIndex - 1;
+                }
             }
         }
 

@@ -87,6 +87,10 @@ async function initApp(docId?: string) {
   const editorState = new EditorState();
   let isDirty = true;
 
+  viewport.onDocumentChange = () => {
+    isDirty = true;
+  };
+
   const inputManager = new InputManager(doc, editorState, () => {
     isDirty = true;
     lastBlinkTime = performance.now();
@@ -124,7 +128,7 @@ async function initApp(docId?: string) {
     }
 
     if (currentPages.length > 0) {
-      viewport.renderer.renderDocument(currentPages);
+      viewport.renderer.renderDocument(currentPages, viewport.pageConstraints);
 
       if (editorState.selection) {
         const sorted = editorState.getSortedSelection();
@@ -214,6 +218,14 @@ async function initApp(docId?: string) {
     inputManager.focus();
     isDirty = true;
   };
+
+  // Listen for margin toggle from Toolbar
+  window.addEventListener('toggle-margins', () => {
+    // Toggle state
+    const current = viewport.renderer.getDebugMode();
+    viewport.renderer.setDebugMode(!current);
+    isDirty = true; // Force re-render
+  });
 }
 
 // --- HANDSHAKE LOGIC ---
@@ -222,22 +234,26 @@ window.addEventListener('message', async (event) => {
   // Listen for the Handshake from Invoicy
   if (event.data.type === 'INIT_SESSION') {
     const { access_token, refresh_token, docId } = event.data.payload;
-    console.log('Editor: Handshake received!');
 
-    // Set the session so we can save to Supabase
+    console.log('Handshake received!', { docId });
+
+    // 1. Set the session in Supabase
     const { error } = await supabase.auth.setSession({
       access_token,
-      refresh_token
+      refresh_token,
     });
 
-    if (error) console.error('Auth Error:', error);
+    if (error) {
+      console.error('Failed to set session:', error);
+      return;
+    }
 
-    // Start the app
+    // 2. Initialize the App
     initApp(docId);
   }
 });
 
-// Dev Mode Fallback (Run immediately if on localhost and not in iframe)
+// Dev Mode Fallback
 if (import.meta.env.DEV && window.self === window.top) {
   console.log('Dev Mode: Starting automatically...');
   // Check for document ID in URL for dev mode

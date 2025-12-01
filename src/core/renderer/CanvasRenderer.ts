@@ -16,7 +16,15 @@ export class CanvasRenderer {
         this.dpr = window.devicePixelRatio || 1;
     }
 
-    renderDocument(pages: RenderPage[]) {
+    public setDebugMode(visible: boolean) {
+        this.debugMode = visible;
+    }
+
+    public getDebugMode(): boolean {
+        return this.debugMode;
+    }
+
+    renderDocument(pages: RenderPage[], constraints?: { marginTop: number, marginBottom: number, marginLeft: number, marginRight: number }) {
         if (pages.length === 0) return;
 
         const pageHeight = pages[0].height;
@@ -47,7 +55,9 @@ export class CanvasRenderer {
             this.ctx.shadowBlur = 0;
 
             // Draw Margins (Debug)
-            this.drawDebugMargins(pageWidth, pageHeight, yOffset);
+            if (constraints) {
+                this.drawDebugMargins(pageWidth, pageHeight, yOffset, constraints);
+            }
 
             // Draw Glyphs relative to this page
             this.drawGlyphs(page, yOffset);
@@ -74,12 +84,21 @@ export class CanvasRenderer {
 
 
     // Updated drawDebugMargins method
-    private drawDebugMargins(width: number, height: number, yOffset: number) {
+    private drawDebugMargins(width: number, height: number, yOffset: number, constraints: { marginTop: number, marginBottom: number, marginLeft: number, marginRight: number }) {
         if (!this.debugMode) return;
-        const margin = 50; // Should match constraints
-        this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
-        this.ctx.lineWidth = 1;
-        this.ctx.strokeRect(margin, margin + yOffset, width - margin * 2, height - margin * 2);
+
+        this.ctx.save();
+        this.ctx.strokeStyle = '#ff0000'; // Red for visibility
+        this.ctx.setLineDash([5, 5]);
+
+        // Draw inner margin box
+        const x = constraints.marginLeft;
+        const y = yOffset + constraints.marginTop;
+        const w = width - constraints.marginLeft - constraints.marginRight;
+        const h = height - constraints.marginTop - constraints.marginBottom;
+
+        this.ctx.strokeRect(x, y, w, h);
+        this.ctx.restore();
     }
 
     // Updated drawGlyphs method
@@ -88,6 +107,33 @@ export class CanvasRenderer {
         this.ctx.textBaseline = 'alphabetic';
 
         for (const glyph of page.glyphs) {
+            // Checkbox Rendering
+            if (glyph.type === 'checkbox_unchecked' || glyph.type === 'checkbox_checked') {
+                const size = glyph.fontSize * 0.8;
+                const x = glyph.x;
+                const y = glyph.y + yOffset - size; // y is baseline, draw up
+
+                // Draw Box
+                this.ctx.beginPath();
+                this.ctx.rect(x, y, size, size);
+                this.ctx.lineWidth = 1.5;
+                this.ctx.strokeStyle = '#555555';
+                this.ctx.stroke();
+
+                // Draw Checkmark if checked
+                if (glyph.type === 'checkbox_checked') {
+                    this.ctx.beginPath();
+                    // Checkmark coordinates relative to box
+                    this.ctx.moveTo(x + size * 0.2, y + size * 0.5);
+                    this.ctx.lineTo(x + size * 0.45, y + size * 0.8);
+                    this.ctx.lineTo(x + size * 0.8, y + size * 0.2);
+                    this.ctx.lineWidth = 2;
+                    this.ctx.strokeStyle = '#0078d4'; // Blue check
+                    this.ctx.stroke();
+                }
+                continue; // Skip text rendering for checkbox
+            }
+
             // Construct font string
             const weight = glyph.bold ? 'bold ' : '';
             const style = glyph.italic ? 'italic ' : '';

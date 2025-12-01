@@ -1,6 +1,7 @@
-import { insertText, deleteText, splitParagraph, getRangeText, deleteRange, toggleStyle, setParagraphAlignment } from '../model/DocumentModel';
+import { insertText, deleteText, splitParagraph, getRangeText, deleteRange, toggleStyle, setParagraphAlignment, insertFragment, toggleList } from '../model/DocumentModel';
 import type { DocumentModel } from '../model/DocumentModel';
 import { EditorState } from '../state/EditorState';
+import { ClipboardUtils } from '../utils/ClipboardUtils';
 
 export class InputManager {
     private textarea: HTMLTextAreaElement;
@@ -54,6 +55,50 @@ export class InputManager {
 
             if (data) {
                 insertText(this.documentModel, this.editorState.selection, data);
+
+                // Auto-List Formatting Logic
+                if (data === ' ') {
+                    const cursor = this.editorState.selection.head;
+                    const section = this.documentModel.sections[0];
+                    const paragraph = section.children[cursor.paragraphIndex];
+
+                    // Get text up to cursor
+                    // Simple check: assume single span for now or check first span
+                    // Ideally we get full text of paragraph but checking first span is usually enough for start-of-line triggers
+                    if (paragraph.children.length > 0) {
+                        const firstSpan = paragraph.children[0];
+                        const text = firstSpan.text;
+
+                        // Check patterns
+                        // 1. Bullet: "- "
+                        if (text.startsWith('- ') && cursor.spanIndex === 0 && cursor.charIndex === 2) {
+                            // Remove "- "
+                            firstSpan.text = text.substring(2);
+                            this.editorState.selection.head.charIndex -= 2;
+                            this.editorState.selection.anchor.charIndex -= 2;
+                            // Set List Type
+                            toggleList(this.documentModel, this.editorState.selection, 'bullet');
+                        }
+                        // 2. Numbered: "1. "
+                        else if (text.startsWith('1. ') && cursor.spanIndex === 0 && cursor.charIndex === 3) {
+                            // Remove "1. "
+                            firstSpan.text = text.substring(3);
+                            this.editorState.selection.head.charIndex -= 3;
+                            this.editorState.selection.anchor.charIndex -= 3;
+                            // Set List Type
+                            toggleList(this.documentModel, this.editorState.selection, 'number');
+                        }
+                        // 3. Checklist: "[] "
+                        else if (text.startsWith('[] ') && cursor.spanIndex === 0 && cursor.charIndex === 3) {
+                            // Remove "[] "
+                            firstSpan.text = text.substring(3);
+                            this.editorState.selection.head.charIndex -= 3;
+                            this.editorState.selection.anchor.charIndex -= 3;
+                            // Set List Type
+                            toggleList(this.documentModel, this.editorState.selection, 'check');
+                        }
+                    }
+                }
             } else {
                 // Handle composition or other input types if needed
             }
@@ -169,13 +214,39 @@ export class InputManager {
                 if (isRange) {
                     deleteRange(this.documentModel, this.editorState.selection);
                 }
-                splitParagraph(this.documentModel, this.editorState.selection);
-                this.onUpdate();
+
+                // List Handling: If empty list item, exit list
+                const cursor = this.editorState.selection.head;
+                const section = this.documentModel.sections[0];
+                const paragraph = section.children[cursor.paragraphIndex];
+
+                // Check if paragraph is empty (single empty span)
+                const isEmpty = paragraph.children.length === 1 && paragraph.children[0].text.length === 0;
+
+                if (paragraph.listType && isEmpty) {
+                    // Exit list mode
+                    delete paragraph.listType;
+                    delete paragraph.checked;
+                    this.onUpdate();
+                } else {
+                    splitParagraph(this.documentModel, this.editorState.selection);
+                    this.onUpdate();
+                }
             } else if (e.key === 'Backspace') {
                 if (isRange) {
                     deleteRange(this.documentModel, this.editorState.selection);
                 } else {
-                    deleteText(this.documentModel, this.editorState.selection, 'backward');
+                    // List Handling: If at start of list item, exit list
+                    const cursor = this.editorState.selection.head;
+                    const section = this.documentModel.sections[0];
+                    const paragraph = section.children[cursor.paragraphIndex];
+
+                    if (paragraph.listType && cursor.spanIndex === 0 && cursor.charIndex === 0) {
+                        delete paragraph.listType;
+                        delete paragraph.checked;
+                    } else {
+                        deleteText(this.documentModel, this.editorState.selection, 'backward');
+                    }
                 }
                 this.onUpdate();
             } else if (e.key === 'Delete') {
@@ -258,6 +329,29 @@ export class InputManager {
         this.textarea.addEventListener('paste', (e) => {
             if (!this.editorState.selection) return;
             e.preventDefault();
+
+            // Try HTML first
+            const html = e.clipboardData?.getData('text/html');
+            if (html) {
+                const paragraphs = ClipboardUtils.parseHtmlContent(html);
+                if (paragraphs.length > 0) {
+                    // Check range
+                    const { anchor, head } = this.editorState.selection;
+                    const isRange = anchor.paragraphIndex !== head.paragraphIndex ||
+                        anchor.spanIndex !== head.spanIndex ||
+                        anchor.charIndex !== head.charIndex;
+
+                    if (isRange) {
+                        deleteRange(this.documentModel, this.editorState.selection);
+                    }
+
+                    insertFragment(this.documentModel, this.editorState.selection, paragraphs);
+                    this.onUpdate();
+                    return;
+                }
+            }
+
+            // Fallback to plain text
             const text = e.clipboardData?.getData('text/plain');
             if (text) {
                 // Check range

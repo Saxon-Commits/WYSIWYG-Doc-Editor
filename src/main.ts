@@ -8,11 +8,9 @@ import { InputManager } from './core/input/InputManager';
 import { Toolbar } from './core/ui/Toolbar';
 import { storageService, supabase } from './core/services/StorageService';
 
-const app = document.querySelector<HTMLDivElement>('#app')!;
-const sampleText = 'Start typing your document...';
-
-// Main Initialization Function
-async function initApp(docId?: string) {
+// Export mount function for React
+export async function mountEditor(container: HTMLElement, docId?: string) {
+  const sampleText = 'Start typing your document...';
   // 1. Load Fonts
   await Promise.all([
     // Roboto
@@ -83,7 +81,7 @@ async function initApp(docId?: string) {
   }
 
   // 3. Initialize App Components
-  const viewport = new Viewport(app, doc);
+  const viewport = new Viewport(container, doc);
   const editorState = new EditorState();
   let isDirty = true;
 
@@ -115,6 +113,7 @@ async function initApp(docId?: string) {
   let lastBlinkTime = 0;
   let isCursorVisible = true;
   let currentPages: any[] = [];
+  let animationFrameId: number;
 
   function renderLoop(timestamp: number) {
     if (timestamp - lastBlinkTime > 500) {
@@ -205,10 +204,10 @@ async function initApp(docId?: string) {
         }
       }
     }
-    requestAnimationFrame(renderLoop);
+    animationFrameId = requestAnimationFrame(renderLoop);
   }
 
-  requestAnimationFrame(renderLoop);
+  animationFrameId = requestAnimationFrame(renderLoop);
 
   // Selection Handler
   viewport.onSelectionChange = (anchor, head) => {
@@ -220,44 +219,18 @@ async function initApp(docId?: string) {
   };
 
   // Listen for margin toggle from Toolbar
-  window.addEventListener('toggle-margins', () => {
+  const toggleHandler = () => {
     // Toggle state
     const current = viewport.renderer.getDebugMode();
     viewport.renderer.setDebugMode(!current);
     isDirty = true; // Force re-render
-  });
-}
+  };
+  window.addEventListener('toggle-margins', toggleHandler);
 
-// --- HANDSHAKE LOGIC ---
-
-window.addEventListener('message', async (event) => {
-  // Listen for the Handshake from Invoicy
-  if (event.data.type === 'INIT_SESSION') {
-    const { access_token, refresh_token, docId } = event.data.payload;
-
-    console.log('Handshake received!', { docId });
-
-    // 1. Set the session in Supabase
-    const { error } = await supabase.auth.setSession({
-      access_token,
-      refresh_token,
-    });
-
-    if (error) {
-      console.error('Failed to set session:', error);
-      return;
-    }
-
-    // 2. Initialize the App
-    initApp(docId);
-  }
-});
-
-// Dev Mode Fallback
-if (import.meta.env.DEV && window.self === window.top) {
-  console.log('Dev Mode: Starting automatically...');
-  // Check for document ID in URL for dev mode
-  const urlParams = new URLSearchParams(window.location.search);
-  const docId = urlParams.get('id');
-  initApp(docId || undefined);
+  // Return cleanup function
+  return () => {
+    cancelAnimationFrame(animationFrameId);
+    window.removeEventListener('toggle-margins', toggleHandler);
+    // Clean up other listeners if needed
+  };
 }

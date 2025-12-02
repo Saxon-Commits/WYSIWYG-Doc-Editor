@@ -17,6 +17,7 @@ export interface RenderGlyph {
     imageSrc?: string;
     imageWidth?: number;
     imageHeight?: number;
+    id?: string; // Added id
     // Metadata for hit testing
     source: {
         paragraphIndex: number;
@@ -46,7 +47,7 @@ export interface PageConstraints {
 
 // Types for Knuth-Plass
 type LayoutItem =
-    | { type: 'BOX'; width: number; char: string; style: Style; source: { paragraphIndex: number; spanIndex: number; charIndex: number }; image?: { src: string, width: number, height: number } }
+    | { type: 'BOX'; width: number; char: string; style: Style; source: { paragraphIndex: number; spanIndex: number; charIndex: number }; image?: { src: string, width: number, height: number }; id?: string }
     | { type: 'GLUE'; width: number; stretch: number; shrink: number; originalChar: string; style: Style; source: { paragraphIndex: number; spanIndex: number; charIndex: number } }
     | { type: 'PENALTY'; width: number; cost: number; flagged: boolean };
 
@@ -215,7 +216,8 @@ export class LayoutEngine {
                     char: '',
                     style: { fontFamily: 'Roboto-Regular', fontSize: 0 }, // Dummy style
                     source: { paragraphIndex, spanIndex, charIndex: 0 },
-                    image: { src: node.src, width: node.width, height: node.height }
+                    image: { src: node.src, width: node.width, height: node.height },
+                    id: node.id // Pass ID
                 });
                 spanIndex++;
                 continue;
@@ -515,10 +517,12 @@ export class LayoutEngine {
                             imageSrc: item.image.src,
                             imageWidth: item.image.width,
                             imageHeight: item.image.height,
+                            id: item.id, // Pass ID
                             source: item.source
                         });
                     } else {
                         glyphs.push({
+                            type: 'text',
                             char: item.char,
                             x: x,
                             y: baselineY,
@@ -529,6 +533,7 @@ export class LayoutEngine {
                             italic: item.style?.italic,
                             color: item.style?.color,
                             underline: item.style?.underline,
+                            id: item.id, // Pass ID
                             source: item.source
                         });
                     }

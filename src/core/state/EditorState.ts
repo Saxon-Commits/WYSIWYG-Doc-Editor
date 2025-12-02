@@ -11,9 +11,16 @@ export interface Selection {
 
 export class EditorState {
     selection: Selection | null = null;
+    selectedImage: string | null = null;
 
     setSelection(anchor: CursorPosition, head: CursorPosition) {
         this.selection = { anchor, head };
+        this.selectedImage = null; // Clear image selection when text is selected
+    }
+
+    selectImage(id: string) {
+        this.selectedImage = id;
+        this.selection = null; // Clear text selection when image is selected
     }
 
     // Helper to get start/end regardless of drag direction

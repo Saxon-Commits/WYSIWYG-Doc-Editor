@@ -267,4 +267,38 @@ export class CanvasRenderer {
             }
         }
     }
+    public drawImageSelection(page: RenderPage, selectedImageId: string, yOffset: number) {
+        for (const glyph of page.glyphs) {
+            if (glyph.type === 'image' && glyph.id === selectedImageId) {
+                const x = glyph.x;
+                const y = glyph.y + yOffset;
+                const w = glyph.width;
+                const h = glyph.imageHeight || 0;
+
+                // Draw Border
+                this.ctx.strokeStyle = '#0066cc';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(x, y, w, h);
+
+                // Draw Handles
+                const handleSize = 8;
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.strokeStyle = '#0066cc';
+                this.ctx.lineWidth = 1;
+
+                const handles = [
+                    { x: x - handleSize / 2, y: y - handleSize / 2 }, // NW
+                    { x: x + w - handleSize / 2, y: y - handleSize / 2 }, // NE
+                    { x: x - handleSize / 2, y: y + h - handleSize / 2 }, // SW
+                    { x: x + w - handleSize / 2, y: y + h - handleSize / 2 } // SE
+                ];
+
+                for (const handle of handles) {
+                    this.ctx.fillRect(handle.x, handle.y, handleSize, handleSize);
+                    this.ctx.strokeRect(handle.x, handle.y, handleSize, handleSize);
+                }
+                return; // Found the image
+            }
+        }
+    }
 }

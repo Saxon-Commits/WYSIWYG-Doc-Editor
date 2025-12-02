@@ -743,3 +743,70 @@ export function deserializeDocument(json: string): DocumentModel {
         return createDocument();
     }
 }
+
+export function resizeImage(document: DocumentModel, id: string, width: number, height: number): void {
+    for (const section of document.sections) {
+        for (const paragraph of section.children) {
+            for (const node of paragraph.children) {
+                if (node.type === 'image' && node.id === id) {
+                    node.width = width;
+                    node.height = height;
+                    return;
+                }
+            }
+        }
+    }
+}
+
+export function moveImage(document: DocumentModel, id: string, targetSelection: Selection): void {
+    // 1. Find and remove the image
+    let imageNode: Image | null = null;
+    let sourceParagraph: Paragraph | null = null;
+    let sourceSpanIndex = -1;
+
+    for (const section of document.sections) {
+        for (const paragraph of section.children) {
+            for (let i = 0; i < paragraph.children.length; i++) {
+                const node = paragraph.children[i];
+                if (node.type === 'image' && node.id === id) {
+                    imageNode = node;
+                    sourceParagraph = paragraph;
+                    sourceSpanIndex = i;
+                    break;
+                }
+            }
+            if (imageNode) break;
+        }
+        if (imageNode) break;
+    }
+
+    if (!imageNode || !sourceParagraph) return;
+
+    // Remove from source
+    sourceParagraph.children.splice(sourceSpanIndex, 1);
+
+    // 2. Insert at target
+    // Use insertImage logic but with existing node
+    const cursor = targetSelection.head;
+    const targetSection = document.sections[0]; // Assume single section for now
+    const targetParagraph = targetSection.children[cursor.paragraphIndex];
+
+    if (!targetParagraph) return; // Should not happen
+
+    const span = targetParagraph.children[cursor.spanIndex];
+
+    if (!span || span.type !== 'span') {
+        // Insert at end or specific index if not a span
+        targetParagraph.children.splice(cursor.spanIndex + 1, 0, imageNode);
+        return;
+    }
+
+    // Split span
+    const before = span.text.substring(0, cursor.charIndex);
+    const after = span.text.substring(cursor.charIndex);
+
+    span.text = before;
+    const afterSpan = createSpan(after, span.style);
+
+    targetParagraph.children.splice(cursor.spanIndex + 1, 0, imageNode, afterSpan);
+}

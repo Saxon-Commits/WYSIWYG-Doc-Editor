@@ -15,10 +15,14 @@ export const EditorWrapper: React.FC = () => {
                 // Mount the editor
                 const cleanup = await mountEditor(containerRef.current, id);
                 if (isMounted) {
-                    cleanupFn = cleanup;
+                    if (typeof cleanup === 'function') {
+                        cleanupFn = cleanup;
+                    }
                 } else {
                     // Component unmounted while loading, clean up immediately
-                    cleanup();
+                    if (typeof cleanup === 'function') {
+                        cleanup();
+                    }
                 }
             }
         };

@@ -205,37 +205,45 @@ export async function mountEditor(container: HTMLElement, docId?: string) {
                         viewport.canvas.offsetTop + cursorY
                     );
                 }
+                if (editorState.selectedImage) {
+                    let yOffset = 0;
+                    const gap = 20;
+                    for (const page of currentPages) {
+                        viewport.renderer.drawImageSelection(page, editorState.selectedImage, yOffset);
+                        yOffset += page.height + gap;
+                    }
+                }
             }
+            animationFrameId = requestAnimationFrame(renderLoop);
         }
+
         animationFrameId = requestAnimationFrame(renderLoop);
+
+        // Selection Handler
+        viewport.onSelectionChange = (anchor, head) => {
+            editorState.setSelection(anchor, head);
+            isCursorVisible = true;
+            lastBlinkTime = performance.now();
+            inputManager.focus();
+            isDirty = true;
+        };
+
+        // Listen for margin toggle from Toolbar
+        const toggleHandler = () => {
+            // Toggle state
+            const current = viewport.renderer.getDebugMode();
+            viewport.renderer.setDebugMode(!current);
+            isDirty = true; // Force re-render
+        };
+        window.addEventListener('toggle-margins', toggleHandler);
+
+        // Return cleanup function
+        return () => {
+            cancelAnimationFrame(animationFrameId);
+            window.removeEventListener('toggle-margins', toggleHandler);
+            toolbar.destroy();
+            viewport.canvas.remove();
+            // Clean up other listeners if needed
+        };
     }
-
-    animationFrameId = requestAnimationFrame(renderLoop);
-
-    // Selection Handler
-    viewport.onSelectionChange = (anchor, head) => {
-        editorState.setSelection(anchor, head);
-        isCursorVisible = true;
-        lastBlinkTime = performance.now();
-        inputManager.focus();
-        isDirty = true;
-    };
-
-    // Listen for margin toggle from Toolbar
-    const toggleHandler = () => {
-        // Toggle state
-        const current = viewport.renderer.getDebugMode();
-        viewport.renderer.setDebugMode(!current);
-        isDirty = true; // Force re-render
-    };
-    window.addEventListener('toggle-margins', toggleHandler);
-
-    // Return cleanup function
-    return () => {
-        cancelAnimationFrame(animationFrameId);
-        window.removeEventListener('toggle-margins', toggleHandler);
-        toolbar.destroy();
-        viewport.canvas.remove();
-        // Clean up other listeners if needed
-    };
 }

@@ -1,4 +1,4 @@
-import { insertText, deleteText, splitParagraph, getRangeText, deleteRange, toggleStyle, setParagraphAlignment, insertFragment, toggleList, insertImage } from '../model/DocumentModel';
+import { insertText, deleteText, splitParagraph, getRangeText, deleteRange, toggleStyle, setParagraphAlignment, insertFragment, toggleList, insertImage, moveImage } from '../model/DocumentModel';
 import type { DocumentModel } from '../model/DocumentModel';
 import { EditorState } from '../state/EditorState';
 import { ClipboardUtils } from '../utils/ClipboardUtils';
@@ -444,5 +444,84 @@ export class InputManager {
 
     public setDocument(document: DocumentModel) {
         this.documentModel = document;
+    }
+
+    // --- Image Interaction State ---
+    private isResizing = false;
+    private isMoving = false;
+    private resizeHandle: string | null = null; // 'nw', 'ne', 'sw', 'se'
+    private startX = 0;
+    private startY = 0;
+    private startWidth = 0;
+    private startHeight = 0;
+    private dragImageId: string | null = null;
+
+    public handleMouseDown(e: MouseEvent, x: number, y: number, hitGlyph: any) {
+        // 1. Check for Resize Handle Click (if image selected)
+        if (this.editorState.selectedImage) {
+            // We need to know where the handles are.
+            // This requires knowing the image position.
+            // We can get this from hitGlyph if we clicked the image, OR we need to find the selected image glyph.
+            // For simplicity, let's assume hitGlyph is the image or handle.
+            // But handles are drawn by renderer, not layout.
+            // So we need to check bounds around the selected image.
+
+            // Actually, let's check if we clicked the selected image itself first.
+            if (hitGlyph && hitGlyph.id === this.editorState.selectedImage) {
+                this.isMoving = true;
+                this.dragImageId = hitGlyph.id;
+                this.startX = x;
+                this.startY = y;
+                return;
+            }
+
+            // Check handles (approximate logic for now, ideally renderer tells us)
+            // We need the rect of the selected image.
+            // We can't easily get it here without querying layout/renderer.
+            // Let's assume we can get it or we defer handle check.
+        }
+
+        // 2. Check for Image Click
+        if (hitGlyph && hitGlyph.type === 'image') {
+            this.editorState.selectImage(hitGlyph.id);
+            this.onUpdate();
+            // Start potential move
+            this.isMoving = true;
+            this.dragImageId = hitGlyph.id;
+            this.startX = x;
+            this.startY = y;
+            return;
+        }
+
+        // 3. Text Selection (Default)
+        // If we didn't click an image or handle, clear image selection
+        if (this.editorState.selectedImage) {
+            this.editorState.selectedImage = null;
+            this.onUpdate();
+        }
+    }
+
+    public handleMouseMove(e: MouseEvent, x: number, y: number) {
+        if (this.isMoving && this.dragImageId) {
+            // Dragging image...
+            // We might want to show a ghost or just wait for drop?
+            // For "move", we usually drag and drop.
+            // Let's implement simple drag-drop logic:
+            // On mouse up, we move the image to the new cursor position.
+        }
+    }
+
+    public handleMouseUp(e: MouseEvent, x: number, y: number, targetSelection: any) {
+        if (this.isMoving && this.dragImageId) {
+            // Move image to new location
+            // We need a target selection (cursor position)
+            if (targetSelection) {
+                // Call moveImage
+                moveImage(this.documentModel, this.dragImageId, { anchor: targetSelection, head: targetSelection });
+                this.onUpdate();
+            }
+            this.isMoving = false;
+            this.dragImageId = null;
+        }
     }
 }

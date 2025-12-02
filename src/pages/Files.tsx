@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, FilePlus, Receipt, FileSignature, File, Plus, MoreVertical, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { FileText, FilePlus, Receipt, FileSignature, Plus, MoreVertical, Clock, CheckCircle, AlertCircle } from 'lucide-react';
 
 interface Quote {
     id: string;

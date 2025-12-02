@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Wand2 } from 'lucide-react';
+import { Plus, Wand2 } from 'lucide-react';
 import { LeadWizard } from './LeadWizard/LeadWizard';
 
 interface Customer {

@@ -8,8 +8,6 @@ import {
     Calendar,
     Settings,
     Moon,
-    Plus,
-    Bell,
     Search
 } from 'lucide-react';
 
@@ -128,21 +126,4 @@ const NavItem = ({ to, icon, label, active }: { to: string, icon: React.ReactNod
         {icon}
         <span style={{ fontSize: '14px', fontWeight: '500' }}>{label}</span>
     </Link>
-);
-
-const IconButton = ({ icon }: { icon: React.ReactNode }) => (
-    <button style={{
-        background: '#1E293B',
-        border: 'none',
-        color: '#94A3B8',
-        width: '36px',
-        height: '36px',
-        borderRadius: '50%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer'
-    }}>
-        {icon}
-    </button>
 );

@@ -35,10 +35,20 @@ export class Viewport {
     private isDragging = false;
     private anchorPosition: any = null; // Store anchor for drag
 
+    public onMouseDown: ((e: MouseEvent, x: number, y: number, hitGlyph: any, layoutEngine?: LayoutEngine) => void) | null = null;
+
     private setupEventListeners() {
         this.canvas.addEventListener('mousedown', (e) => {
             e.preventDefault(); // Prevent focus loss
             const { x, y } = this.getMousePos(e);
+
+            // 1. Check for specific glyph hit (e.g. image)
+            const glyph = this.layoutEngine.getGlyphAt(x, y);
+            if (this.onMouseDown) {
+                this.onMouseDown(e, x, y, glyph, this.layoutEngine);
+            }
+
+            // 2. Standard Text Selection Logic
             const position = this.layoutEngine.hitTest(x, y);
 
             if (position) {
@@ -76,10 +86,7 @@ export class Viewport {
             }
         });
 
-        window.addEventListener('mouseup', () => {
-            this.isDragging = false;
-            this.anchorPosition = null;
-        });
+        window.addEventListener('mouseup', this.handleWindowMouseUp);
     }
 
     public onSelectionChange: ((anchor: any, head: any) => void) | null = null;
@@ -101,5 +108,18 @@ export class Viewport {
     public setDocument(document: DocumentModel) {
         this.document = document;
         this.render();
+    }
+
+    private handleWindowMouseUp = () => {
+        this.isDragging = false;
+        this.anchorPosition = null;
+    };
+
+    public destroy() {
+        window.removeEventListener('mouseup', this.handleWindowMouseUp);
+        // Canvas is removed by caller (mount.ts) or we can do it here
+        if (this.canvas && this.canvas.parentNode) {
+            this.canvas.parentNode.removeChild(this.canvas);
+        }
     }
 }

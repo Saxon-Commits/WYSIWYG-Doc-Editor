@@ -1,4 +1,4 @@
-import { setParagraphAlignment, toggleStyle, applyStyle, deserializeDocument, toggleList, setParagraphSpacing, insertImage } from '../model/DocumentModel';
+import { setParagraphAlignment, toggleStyle, applyStyle, toggleList, setParagraphSpacing, insertImage } from '../model/DocumentModel';
 import type { DocumentModel, Style } from '../model/DocumentModel';
 import type { EditorState } from '../state/EditorState';
 

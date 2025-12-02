@@ -1,7 +1,8 @@
-import { insertText, deleteText, splitParagraph, getRangeText, deleteRange, toggleStyle, setParagraphAlignment, insertFragment, toggleList, insertImage, moveImage } from '../model/DocumentModel';
+import { insertText, deleteText, splitParagraph, getRangeText, deleteRange, toggleStyle, setParagraphAlignment, insertFragment, toggleList, insertImage, resizeImage, updateImagePosition } from '../model/DocumentModel';
 import type { DocumentModel } from '../model/DocumentModel';
 import { EditorState } from '../state/EditorState';
 import { ClipboardUtils } from '../utils/ClipboardUtils';
+import { LayoutEngine } from '../layout/LayoutEngine';
 
 export class InputManager {
     private textarea: HTMLTextAreaElement;
@@ -446,6 +447,15 @@ export class InputManager {
         this.documentModel = document;
     }
 
+    public destroy() {
+        if (this.textarea && this.textarea.parentNode) {
+            this.textarea.parentNode.removeChild(this.textarea);
+        }
+        // Note: Container event listeners (dragover, drop) are not easily removable 
+        // because they were added as anonymous functions in constructor.
+        // Ideally we should refactor to store them.
+    }
+
     // --- Image Interaction State ---
     private isResizing = false;
     private isMoving = false;
@@ -454,72 +464,115 @@ export class InputManager {
     private startY = 0;
     private startWidth = 0;
     private startHeight = 0;
+    private startImageX = 0;
+    private startImageY = 0;
     private dragImageId: string | null = null;
 
-    public handleMouseDown(e: MouseEvent, x: number, y: number, hitGlyph: any) {
+    public handleMouseDown(_e: MouseEvent, x: number, y: number, hitGlyph: any, layoutEngine?: LayoutEngine) {
         // 1. Check for Resize Handle Click (if image selected)
-        if (this.editorState.selectedImage) {
-            // We need to know where the handles are.
-            // This requires knowing the image position.
-            // We can get this from hitGlyph if we clicked the image, OR we need to find the selected image glyph.
-            // For simplicity, let's assume hitGlyph is the image or handle.
-            // But handles are drawn by renderer, not layout.
-            // So we need to check bounds around the selected image.
+        if (this.editorState.selectedImage && layoutEngine) {
+            // Find the selected image glyph to get its current position
+            const result = layoutEngine.getGlyphById(this.editorState.selectedImage);
 
-            // Actually, let's check if we clicked the selected image itself first.
-            if (hitGlyph && hitGlyph.id === this.editorState.selectedImage) {
-                this.isMoving = true;
-                this.dragImageId = hitGlyph.id;
-                this.startX = x;
-                this.startY = y;
-                return;
+            if (result) {
+                const { glyph, pageIndex } = result;
+                // Calculate absolute Y of the glyph
+                // We need page height + gap
+                // We can get it from layoutEngine.lastPages[0].height (assuming uniform pages)
+                const pageHeight = (layoutEngine as any).lastPages?.[0]?.height || 1123;
+                const gap = 20;
+                const totalHeight = pageHeight + gap;
+                const absY = (pageIndex * totalHeight) + glyph.y;
+
+                const handleSize = 10;
+                const right = glyph.x + glyph.width;
+                const bottom = absY + (glyph.imageHeight || 0);
+
+                // SE Handle Check
+                if (Math.abs(x - right) < handleSize && Math.abs(y - bottom) < handleSize) {
+                    this.isResizing = true;
+                    this.resizeHandle = 'se';
+                    this.startX = x;
+                    this.startY = y;
+                    this.startWidth = glyph.width;
+                    this.startHeight = glyph.imageHeight || 0;
+                    this.dragImageId = glyph.id || null;
+                    return;
+                }
             }
-
-            // Check handles (approximate logic for now, ideally renderer tells us)
-            // We need the rect of the selected image.
-            // We can't easily get it here without querying layout/renderer.
-            // Let's assume we can get it or we defer handle check.
         }
 
-        // 2. Check for Image Click
+        // 2. Check for Image Interaction
         if (hitGlyph && hitGlyph.type === 'image') {
+            // Select Image
             this.editorState.selectImage(hitGlyph.id);
             this.onUpdate();
-            // Start potential move
+
+            // Start Move
             this.isMoving = true;
             this.dragImageId = hitGlyph.id;
             this.startX = x;
             this.startY = y;
+            this.startImageX = hitGlyph.x;
+            this.startImageY = hitGlyph.y;
             return;
         }
 
         // 3. Text Selection (Default)
-        // If we didn't click an image or handle, clear image selection
         if (this.editorState.selectedImage) {
             this.editorState.selectedImage = null;
             this.onUpdate();
         }
     }
 
-    public handleMouseMove(e: MouseEvent, x: number, y: number) {
+    public handleMouseMove(_e: MouseEvent, x: number, y: number) {
+        if (this.isResizing && this.dragImageId) {
+            const dx = x - this.startX;
+            const dy = y - this.startY;
+
+            let newWidth = this.startWidth;
+            let newHeight = this.startHeight;
+
+            if (this.resizeHandle === 'se') {
+                newWidth += dx;
+                newHeight += dy;
+            }
+            // Add other handles if needed
+
+            // Constrain min size
+            if (newWidth < 20) newWidth = 20;
+            if (newHeight < 20) newHeight = 20;
+
+            // Update model
+            resizeImage(this.documentModel, this.dragImageId, newWidth, newHeight);
+            this.onUpdate();
+            return;
+        }
+
         if (this.isMoving && this.dragImageId) {
-            // Dragging image...
-            // We might want to show a ghost or just wait for drop?
-            // For "move", we usually drag and drop.
-            // Let's implement simple drag-drop logic:
-            // On mouse up, we move the image to the new cursor position.
+            const dx = x - this.startX;
+            const dy = y - this.startY;
+
+            const newX = this.startImageX + dx;
+            const newY = this.startImageY + dy;
+
+            updateImagePosition(this.documentModel, this.dragImageId, newX, newY);
+            this.onUpdate();
         }
     }
 
-    public handleMouseUp(e: MouseEvent, x: number, y: number, targetSelection: any) {
+    public handleMouseUp(_e: MouseEvent, _x: number, _y: number, _targetSelection: any) {
+        if (this.isResizing) {
+            this.isResizing = false;
+            this.resizeHandle = null;
+            this.dragImageId = null;
+            return;
+        }
+
         if (this.isMoving && this.dragImageId) {
-            // Move image to new location
-            // We need a target selection (cursor position)
-            if (targetSelection) {
-                // Call moveImage
-                moveImage(this.documentModel, this.dragImageId, { anchor: targetSelection, head: targetSelection });
-                this.onUpdate();
-            }
+            // Commit logic is implicit in handleMouseMove updates for floating images
+            // If we wanted to support inline move (drag and drop text), we'd check if it was floating or not.
+            // For now, assume all image drags are floating updates.
             this.isMoving = false;
             this.dragImageId = null;
         }

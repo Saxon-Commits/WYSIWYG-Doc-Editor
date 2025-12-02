@@ -18,8 +18,26 @@ export interface Image {
     src: string;
     width: number;
     height: number;
+    x?: number; // Absolute X position (if floating)
+    y?: number; // Absolute Y position (if floating)
     alt?: string;
     id: string;
+}
+
+// ...
+
+export function updateImagePosition(document: DocumentModel, id: string, x: number, y: number): void {
+    for (const section of document.sections) {
+        for (const paragraph of section.children) {
+            for (const node of paragraph.children) {
+                if (node.type === 'image' && node.id === id) {
+                    node.x = x;
+                    node.y = y;
+                    return;
+                }
+            }
+        }
+    }
 }
 
 export type InlineNode = Span | Image;

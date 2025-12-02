@@ -95,7 +95,7 @@ interface CustomerWorkspaceProps extends CustomerDocumentsProps {
     onToggleFullScreen?: () => void;
 }
 
-export const CustomerWorkspace: React.FC<CustomerWorkspaceProps> = ({ customerName, documents, isFullScreen, onToggleFullScreen }) => {
+export const CustomerWorkspace: React.FC<CustomerWorkspaceProps> = ({ documents, isFullScreen, onToggleFullScreen }) => {
     const [mainTab, setMainTab] = React.useState<'workspace' | 'documents'>('workspace');
     const [currentStep, setCurrentStep] = React.useState('Inquiry');
     const steps = ['Inquiry', 'Proposal', 'Deposit Paid', 'Tasks', 'Delivery', 'Done'];

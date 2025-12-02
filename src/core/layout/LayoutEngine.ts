@@ -47,7 +47,7 @@ export interface PageConstraints {
 
 // Types for Knuth-Plass
 type LayoutItem =
-    | { type: 'BOX'; width: number; char: string; style: Style; source: { paragraphIndex: number; spanIndex: number; charIndex: number }; image?: { src: string, width: number, height: number }; id?: string }
+    | { type: 'BOX'; width: number; char: string; style: Style; source: { paragraphIndex: number; spanIndex: number; charIndex: number }; image?: { src: string, width: number, height: number, x?: number, y?: number }; id?: string }
     | { type: 'GLUE'; width: number; stretch: number; shrink: number; originalChar: string; style: Style; source: { paragraphIndex: number; spanIndex: number; charIndex: number } }
     | { type: 'PENALTY'; width: number; cost: number; flagged: boolean };
 
@@ -193,6 +193,67 @@ export class LayoutEngine {
         }
 
         return null;
+        return null;
+    }
+
+    public getGlyphAt(x: number, y: number): RenderGlyph | null {
+        if (this.lastPages.length === 0) return null;
+
+        // 1. Find the Page
+        const pageHeight = this.lastPages[0].height;
+        const gap = 20;
+        const totalHeight = pageHeight + gap;
+        const pageIndex = Math.floor(y / totalHeight);
+
+        if (pageIndex < 0 || pageIndex >= this.lastPages.length) return null;
+
+        const page = this.lastPages[pageIndex];
+        let localY = y - (pageIndex * totalHeight);
+
+        if (localY > pageHeight) return null;
+
+        // 2. Find Glyph
+        let closestGlyph: RenderGlyph | null = null;
+        let minDist = Infinity;
+
+        for (const glyph of page.glyphs) {
+            const width = glyph.width;
+            const dx = glyph.x + (width / 2) - x;
+            const dy = glyph.y - (glyph.fontSize / 3) - localY;
+
+            // Simple bounding box check first for images?
+            if (glyph.type === 'image') {
+                if (x >= glyph.x && x <= glyph.x + glyph.width &&
+                    localY >= glyph.y && localY <= glyph.y + (glyph.imageHeight || 0)) {
+                    return glyph;
+                }
+            }
+
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < minDist) {
+                minDist = dist;
+                closestGlyph = glyph;
+            }
+        }
+
+        // For text, we might want a threshold
+        if (minDist < 20) {
+            return closestGlyph;
+        }
+
+        return null;
+    }
+
+    public getGlyphById(id: string): { glyph: RenderGlyph, pageIndex: number } | null {
+        for (let i = 0; i < this.lastPages.length; i++) {
+            const page = this.lastPages[i];
+            for (const glyph of page.glyphs) {
+                if (glyph.id === id) {
+                    return { glyph, pageIndex: i };
+                }
+            }
+        }
+        return null;
     }
 
     private createPage(pageNumber: number, constraints: PageConstraints): RenderPage {
@@ -203,6 +264,8 @@ export class LayoutEngine {
             height: constraints.height,
         };
     }
+
+
 
     private tokenizeParagraph(paragraph: Paragraph, paragraphIndex: number): LayoutItem[] {
         const items: LayoutItem[] = [];
@@ -216,7 +279,7 @@ export class LayoutEngine {
                     char: '',
                     style: { fontFamily: 'Roboto-Regular', fontSize: 0 }, // Dummy style
                     source: { paragraphIndex, spanIndex, charIndex: 0 },
-                    image: { src: node.src, width: node.width, height: node.height },
+                    image: { src: node.src, width: node.width, height: node.height, x: node.x, y: node.y },
                     id: node.id // Pass ID
                 });
                 spanIndex++;
@@ -503,6 +566,43 @@ export class LayoutEngine {
 
                 if (item.type === 'PENALTY') continue;
                 if (item.source.spanIndex === -1) continue;
+
+                // Check for floating images (node.x !== undefined)
+                // This logic needs to be applied to the original paragraph children,
+                // not the tokenized items. The tokenization process should ideally filter these out
+                // or mark them for special handling.
+                // As per the instruction, this check is inserted here, assuming `item.image`
+                // would carry the `x` and `y` properties if it were floating.
+                // However, the `layoutParagraph` function is designed for inline flow.
+                // The provided "Code Edit" snippet seems to be from a higher-level layout function
+                // that iterates `paragraph.children` directly.
+                // To faithfully apply the change *within this function's context*,
+                // we'd need `item.image.x` and `item.image.y` to be present.
+                // Assuming `item.image` is the original image node:
+                if (item.type === 'BOX' && item.image && item.image.x !== undefined && item.image.y !== undefined) {
+                    // Floating image: Add directly to glyphs at absolute position
+                    // This will bypass the normal line layout for this specific image.
+                    // Note: This means the image will be rendered at its absolute position
+                    // regardless of the current text flow, and will not affect `x` or `currentY`.
+                    glyphs.push({
+                        type: 'image',
+                        char: '',
+                        x: item.image.x,
+                        y: item.image.y,
+                        width: item.width, // item.width should be item.image.width
+                        fontFamily: '',
+                        fontSize: 0,
+                        imageSrc: item.image.src,
+                        imageWidth: item.image.width,
+                        imageHeight: item.image.height,
+                        id: item.id,
+                        source: item.source
+                    });
+                    // Do NOT advance x for floating images, and effectively remove it from inline flow
+                    // by continuing to the next item.
+                    continue;
+                }
+
 
                 if (item.type === 'BOX') {
                     if (item.image) {

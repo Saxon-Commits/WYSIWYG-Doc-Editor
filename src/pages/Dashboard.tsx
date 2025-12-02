@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Users, FileText, CreditCard, Calendar as CalendarIcon, ArrowRight, TrendingUp, Clock, MoreVertical } from 'lucide-react';
-import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
+import { Users, FileText, CreditCard, Calendar as CalendarIcon, ArrowRight, TrendingUp, Clock, MoreVertical } from 'lucide-react';
+import { LineChart, Line, ResponsiveContainer } from 'recharts';
+import { MOCK_DAILY_FINANCIALS } from '../data/mockFinancials';
 
 // Mock Data
 const RECENT_LEADS = [
@@ -22,9 +23,7 @@ const UPCOMING_EVENTS = [
     { id: '3', title: 'Weekly Team Sync', time: 'Wed, 9:00 AM', type: 'internal' },
 ];
 
-const MINI_CHART_DATA = [
-    { value: 2400 }, { value: 1398 }, { value: 9800 }, { value: 3908 }, { value: 4800 }, { value: 3800 }, { value: 4300 }
-];
+// Mock Data
 
 export const Dashboard: React.FC = () => {
     return (
@@ -64,37 +63,92 @@ export const Dashboard: React.FC = () => {
                 </DashboardCard>
 
                 {/* Financial Snapshot */}
-                <DashboardCard title="Financial Overview" link="/bills" linkText="View Finances">
-                    <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: '24px' }}>
+                <div style={{
+                    background: 'white',
+                    borderRadius: '12px',
+                    border: '1px solid #E2E8F0',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    minHeight: '300px'
+                }}>
+                    <div style={{ padding: '20px', borderBottom: '1px solid rgba(226, 232, 240, 0.6)', position: 'relative', zIndex: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#1E293B', margin: 0 }}>Financial Overview</h2>
+                        <Link to="/bills" style={{ fontSize: '13px', color: '#3B82F6', textDecoration: 'none', fontWeight: '500' }}>View Finances</Link>
+                    </div>
+
+                    {/* Background Chart */}
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, top: '60px', zIndex: 0, opacity: 0.8 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={MOCK_DAILY_FINANCIALS}>
+                                <Line type="linear" dataKey="income" stroke="#16A34A" strokeWidth={3} dot={false} />
+                                <Line type="linear" dataKey="expenses" stroke="#EF4444" strokeWidth={3} dot={false} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+
+                    {/* Content Overlay */}
+                    <div style={{ position: 'relative', zIndex: 1, padding: '24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                        {/* Revenue */}
                         <div>
-                            <div style={{ fontSize: '12px', color: '#64748B', marginBottom: '4px' }}>Total Revenue (Nov)</div>
-                            <div style={{ fontSize: '24px', fontWeight: '700', color: '#1E293B' }}>$12,450.00</div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#16A34A', marginTop: '4px' }}>
-                                <TrendingUp size={12} />
-                                <span>+12.5% vs last month</span>
+                            <div style={{ fontSize: '13px', color: '#64748B', marginBottom: '8px', fontWeight: '500' }}>Total Revenue (Nov)</div>
+                            <div style={{ fontSize: '28px', fontWeight: '700', color: '#1E293B', marginBottom: '8px', textShadow: '0 0 5px rgba(255,255,255,0.7)' }}>$12,450.00</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#16A34A', marginBottom: '16px' }}>
+                                <TrendingUp size={14} />
+                                <span style={{ fontWeight: '600' }}>+12.5%</span>
+                                <span style={{ color: '#64748B' }}>vs last month</span>
                             </div>
+                            <button style={{
+                                background: '#EFF6FF',
+                                color: '#3B82F6',
+                                border: '1px solid #DBEAFE',
+                                padding: '8px 16px',
+                                borderRadius: '6px',
+                                fontSize: '13px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                width: '100%',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s'
+                            }}>
+                                Follow up unpaid invoices
+                                <ArrowRight size={14} />
+                            </button>
                         </div>
-                        <div style={{ width: '120px', height: '60px' }}>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={MINI_CHART_DATA}>
-                                    <Line type="monotone" dataKey="value" stroke="#16A34A" strokeWidth={2} dot={false} />
-                                </LineChart>
-                            </ResponsiveContainer>
+
+                        {/* Expenses */}
+                        <div>
+                            <div style={{ fontSize: '13px', color: '#64748B', marginBottom: '8px', fontWeight: '500' }}>Total Expenses (Nov)</div>
+                            <div style={{ fontSize: '28px', fontWeight: '700', color: '#1E293B', marginBottom: '8px', textShadow: '0 0 5px rgba(255,255,255,0.7)' }}>$3,820.00</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#EF4444', marginBottom: '16px' }}>
+                                <TrendingUp size={14} />
+                                <span style={{ fontWeight: '600' }}>+5.2%</span>
+                                <span style={{ color: '#64748B' }}>vs last month</span>
+                            </div>
+                            <button style={{
+                                background: '#FEF2F2',
+                                color: '#EF4444',
+                                border: '1px solid #FEE2E2',
+                                padding: '8px 16px',
+                                borderRadius: '6px',
+                                fontSize: '13px',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                width: '100%',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s'
+                            }}>
+                                View unpaid bills
+                                <ArrowRight size={14} />
+                            </button>
                         </div>
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                        <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px' }}>
-                            <div style={{ fontSize: '12px', color: '#64748B', marginBottom: '4px' }}>Unpaid Bills</div>
-                            <div style={{ fontSize: '16px', fontWeight: '600', color: '#DC2626' }}>$1,254.99</div>
-                            <div style={{ fontSize: '11px', color: '#94A3B8' }}>3 invoices overdue</div>
-                        </div>
-                        <div style={{ padding: '12px', background: '#F8FAFC', borderRadius: '8px' }}>
-                            <div style={{ fontSize: '12px', color: '#64748B', marginBottom: '4px' }}>Pending Invoices</div>
-                            <div style={{ fontSize: '16px', fontWeight: '600', color: '#F59E0B' }}>$4,500.00</div>
-                            <div style={{ fontSize: '11px', color: '#94A3B8' }}>2 drafts</div>
-                        </div>
-                    </div>
-                </DashboardCard>
+                </div>
 
                 {/* Files Snapshot */}
                 <DashboardCard title="Recent Documents" link="/files" linkText="All Files">

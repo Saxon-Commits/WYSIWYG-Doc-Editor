@@ -101,7 +101,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
                 </header>
 
                 {/* Page Content */}
-                <main style={{ flex: 1, overflow: 'auto', padding: '24px' }}>
+                <main style={{ flex: 1, overflow: 'auto', padding: location.pathname.startsWith('/editor') ? '0' : '24px' }}>
                     {children}
                 </main>
             </div>

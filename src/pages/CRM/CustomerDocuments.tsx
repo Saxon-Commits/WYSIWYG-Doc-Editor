@@ -15,11 +15,40 @@ interface CustomerDocumentsProps {
     documents: Document[];
 }
 
+import { useNavigate } from 'react-router-dom';
+import { Plus } from 'lucide-react';
+
 export const CustomerDocuments: React.FC<CustomerDocumentsProps> = ({ customerName, documents }) => {
+    const navigate = useNavigate();
+
+    const handleCreateDocument = () => {
+        const newDocId = crypto.randomUUID();
+        navigate(`/editor/${newDocId}`);
+    };
+
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'white' }}>
-            <div style={{ padding: '20px', borderBottom: '1px solid #E2E8F0' }}>
+            <div style={{ padding: '20px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#1E293B', margin: 0 }}>Documents for {customerName}</h2>
+                <button
+                    onClick={handleCreateDocument}
+                    style={{
+                        background: '#3B82F6',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '8px 12px',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        cursor: 'pointer'
+                    }}
+                >
+                    <Plus size={16} />
+                    Create Document
+                </button>
             </div>
 
             <div style={{ flex: 1, overflow: 'auto', padding: '0' }}>
@@ -69,7 +98,7 @@ interface CustomerWorkspaceProps extends CustomerDocumentsProps {
 export const CustomerWorkspace: React.FC<CustomerWorkspaceProps> = ({ customerName, documents, isFullScreen, onToggleFullScreen }) => {
     const [mainTab, setMainTab] = React.useState<'workspace' | 'documents'>('workspace');
     const [currentStep, setCurrentStep] = React.useState('Inquiry');
-    const steps = ['Inquiry', 'Proposal', 'Deposit Paid', 'Tasks', 'Delivery', 'Finalization'];
+    const steps = ['Inquiry', 'Proposal', 'Deposit Paid', 'Tasks', 'Delivery', 'Done'];
 
     const renderContent = () => {
         switch (currentStep) {
@@ -111,17 +140,16 @@ export const CustomerWorkspace: React.FC<CustomerWorkspaceProps> = ({ customerNa
                     <div style={{ padding: '32px', maxWidth: '600px', margin: '0 auto', width: '100%' }}>
                         <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1E293B', marginBottom: '24px' }}>Delivery Actions</h3>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                            <ActionButton icon={<Send size={20} />} title="Send Deliverables" description="Email files to client" />
-                            <ActionButton icon={<Calendar size={20} />} title="Schedule Handover" description="Book a handover meeting" />
+                            <ActionButton icon={<Send size={20} />} title="Email Client" description="Email files to client" />
+                            <ActionButton icon={<Calendar size={20} />} title="Book Video Call" description="Book a handover meeting" />
                             <ActionButton icon={<CheckCircle size={20} />} title="Mark as Delivered" description="Update project status" />
-                            <ActionButton icon={<MessageSquare size={20} />} title="Request Review" description="Ask client to review deliverables" />
                         </div>
                     </div>
                 );
-            case 'Finalization':
+            case 'Done':
                 return (
                     <div style={{ padding: '32px', maxWidth: '600px', margin: '0 auto', width: '100%' }}>
-                        <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1E293B', marginBottom: '24px' }}>Finalization Actions</h3>
+                        <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1E293B', marginBottom: '24px' }}>Done Actions</h3>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                             <ActionButton icon={<Receipt size={20} />} title="Send Final Invoice" description="Invoice for remaining balance" />
                             <ActionButton icon={<Archive size={20} />} title="Archive Project" description="Move to completed projects" />

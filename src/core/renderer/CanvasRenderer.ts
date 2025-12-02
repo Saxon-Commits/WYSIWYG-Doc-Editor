@@ -6,14 +6,69 @@ export class CanvasRenderer {
     private canvas: HTMLCanvasElement;
     private debugMode: boolean = true;
 
-    constructor(canvas: HTMLCanvasElement) {
+    private imageCache: Map<string, HTMLImageElement> = new Map();
+    public onRefresh?: () => void;
+
+    constructor(canvas: HTMLCanvasElement, onRefresh?: () => void) {
         this.canvas = canvas;
+        this.onRefresh = onRefresh;
         const context = canvas.getContext('2d');
         if (!context) {
             throw new Error('Could not get 2D context');
         }
         this.ctx = context;
         this.dpr = window.devicePixelRatio || 1;
+    }
+
+    // ...
+
+    private drawGlyphs(page: RenderPage, yOffset: number) {
+        for (const glyph of page.glyphs) {
+            if (glyph.type === 'image') {
+                if (glyph.imageSrc) {
+                    const img = this.getImage(glyph.imageSrc);
+                    if (img && img.complete) {
+                        this.ctx.drawImage(img, glyph.x, yOffset + glyph.y, glyph.width, glyph.imageHeight || 0);
+                    } else {
+                        // Draw placeholder
+                        this.ctx.fillStyle = '#f0f0f0';
+                        this.ctx.fillRect(glyph.x, yOffset + glyph.y, glyph.width, glyph.imageHeight || 0);
+                        this.ctx.strokeStyle = '#ccc';
+                        this.ctx.strokeRect(glyph.x, yOffset + glyph.y, glyph.width, glyph.imageHeight || 0);
+                        this.ctx.fillStyle = '#999';
+                        this.ctx.font = '12px sans-serif';
+                        this.ctx.fillText('Loading...', glyph.x + 5, yOffset + glyph.y + 20);
+                    }
+                }
+            } else if (glyph.type === 'checkbox_unchecked') {
+                // ...
+            } else if (glyph.type === 'checkbox_checked') {
+                // ...
+            } else {
+                // Text
+                this.ctx.font = `${glyph.italic ? 'italic ' : ''}${glyph.bold ? 'bold ' : ''}${glyph.fontSize}px ${glyph.fontFamily}`;
+                this.ctx.fillStyle = glyph.color || '#000000';
+                this.ctx.fillText(glyph.char, glyph.x, yOffset + glyph.y);
+
+                if (glyph.underline) {
+                    this.ctx.fillRect(glyph.x, yOffset + glyph.y + 2, glyph.width, 1);
+                }
+            }
+        }
+    }
+
+    private getImage(src: string): HTMLImageElement | null {
+        if (this.imageCache.has(src)) {
+            return this.imageCache.get(src)!;
+        }
+
+        const img = new Image();
+        img.src = src;
+        img.onload = () => {
+            this.onRefresh?.();
+        };
+        this.imageCache.set(src, img);
+        return img;
     }
 
     public setDebugMode(visible: boolean) {
@@ -101,64 +156,8 @@ export class CanvasRenderer {
         this.ctx.restore();
     }
 
-    // Updated drawGlyphs method
-    private drawGlyphs(page: RenderPage, yOffset: number) {
-        this.ctx.fillStyle = '#000000';
-        this.ctx.textBaseline = 'alphabetic';
 
-        for (const glyph of page.glyphs) {
-            // Checkbox Rendering
-            if (glyph.type === 'checkbox_unchecked' || glyph.type === 'checkbox_checked') {
-                const size = glyph.fontSize * 0.8;
-                const x = glyph.x;
-                const y = glyph.y + yOffset - size; // y is baseline, draw up
 
-                // Draw Box
-                this.ctx.beginPath();
-                this.ctx.rect(x, y, size, size);
-                this.ctx.lineWidth = 1.5;
-                this.ctx.strokeStyle = '#555555';
-                this.ctx.stroke();
-
-                // Draw Checkmark if checked
-                if (glyph.type === 'checkbox_checked') {
-                    this.ctx.beginPath();
-                    // Checkmark coordinates relative to box
-                    this.ctx.moveTo(x + size * 0.2, y + size * 0.5);
-                    this.ctx.lineTo(x + size * 0.45, y + size * 0.8);
-                    this.ctx.lineTo(x + size * 0.8, y + size * 0.2);
-                    this.ctx.lineWidth = 2;
-                    this.ctx.strokeStyle = '#0078d4'; // Blue check
-                    this.ctx.stroke();
-                }
-                continue; // Skip text rendering for checkbox
-            }
-
-            // Construct font string
-            const weight = glyph.bold ? 'bold ' : '';
-            const style = glyph.italic ? 'italic ' : '';
-            this.ctx.font = `${style}${weight}${glyph.fontSize}px "${glyph.fontFamily}"`;
-
-            // Set Color
-            this.ctx.fillStyle = glyph.color || '#000000';
-
-            // Add yOffset to the glyph's local Y
-            this.ctx.fillText(glyph.char, glyph.x, glyph.y + yOffset);
-
-            // Render Underline
-            if (glyph.underline) {
-                const width = this.ctx.measureText(glyph.char).width;
-                const underlineY = glyph.y + yOffset + (glyph.fontSize * 0.1); // Slightly below baseline
-
-                this.ctx.beginPath();
-                this.ctx.moveTo(glyph.x, underlineY);
-                this.ctx.lineTo(glyph.x + width, underlineY);
-                this.ctx.lineWidth = glyph.fontSize / 15;
-                this.ctx.strokeStyle = glyph.color || '#000000';
-                this.ctx.stroke();
-            }
-        }
-    }
 
     drawCursor(x: number, y: number, height: number, visible: boolean) {
         if (!visible) return;

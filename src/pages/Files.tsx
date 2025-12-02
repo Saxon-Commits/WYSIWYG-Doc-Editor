@@ -47,16 +47,25 @@ const MOCK_DOCUMENTS: Document[] = [
     { id: '4', title: 'Meeting Notes', type: 'Document', date: 'Oct 27, 2024' },
 ];
 
+import { useNavigate } from 'react-router-dom';
+
 export const Files: React.FC = () => {
+    const navigate = useNavigate();
+
+    const handleCreateDocument = () => {
+        const newDocId = crypto.randomUUID();
+        navigate(`/editor/${newDocId}`);
+    };
+
     return (
         <div style={{ padding: '24px', maxWidth: '1200px', margin: '0 auto' }}>
             <div style={{ marginBottom: '32px', display: 'flex', gap: '16px', overflowX: 'auto', paddingBottom: '4px' }}>
-                <CreateCard icon={<Receipt size={20} />} title="Invoice" description="New invoice" />
-                <CreateCard icon={<FileText size={20} />} title="Quote" description="New quote" />
-                <CreateCard icon={<FileSignature size={20} />} title="Contract" description="New contract" />
-                <CreateCard icon={<FilePlus size={20} />} title="Proposal" description="New proposal" />
-                <CreateCard icon={<FileText size={20} />} title="Onboarding" description="New doc" />
-                <CreateCard icon={<Plus size={20} />} title="Blank" description="New file" />
+                <CreateCard icon={<Receipt size={20} />} title="Invoice" description="New invoice" onClick={handleCreateDocument} />
+                <CreateCard icon={<FileText size={20} />} title="Quote" description="New quote" onClick={handleCreateDocument} />
+                <CreateCard icon={<FileSignature size={20} />} title="Contract" description="New contract" onClick={handleCreateDocument} />
+                <CreateCard icon={<FilePlus size={20} />} title="Proposal" description="New proposal" onClick={handleCreateDocument} />
+                <CreateCard icon={<FileText size={20} />} title="Onboarding" description="New doc" onClick={handleCreateDocument} />
+                <CreateCard icon={<Plus size={20} />} title="Blank" description="New file" onClick={handleCreateDocument} />
             </div>
 
             <div style={{ display: 'grid', gap: '32px' }}>
@@ -175,23 +184,25 @@ const Section = ({ title, children }: { title: string, children: React.ReactNode
     </div>
 );
 
-const CreateCard = ({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) => (
-    <button style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '16px',
-        background: 'white',
-        border: '1px solid #E2E8F0',
-        borderRadius: '8px',
-        cursor: 'pointer',
-        textAlign: 'center',
-        transition: 'all 0.2s ease',
-        height: 'auto',
-        minWidth: '120px',
-        flex: 1
-    }}
+const CreateCard = ({ icon, title, description, onClick }: { icon: React.ReactNode, title: string, description: string, onClick?: () => void }) => (
+    <button
+        onClick={onClick}
+        style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            background: 'white',
+            border: '1px solid #E2E8F0',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            textAlign: 'center',
+            transition: 'all 0.2s ease',
+            height: 'auto',
+            minWidth: '120px',
+            flex: 1
+        }}
         onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = '#3B82F6';
             e.currentTarget.style.transform = 'translateY(-2px)';

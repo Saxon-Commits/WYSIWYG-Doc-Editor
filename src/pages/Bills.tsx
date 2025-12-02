@@ -1,5 +1,5 @@
 import React from 'react';
-import { Receipt, CreditCard, Plus, MoreVertical, AlertCircle, Clock } from 'lucide-react';
+import { Receipt, CreditCard, MoreVertical, AlertCircle, Clock } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface Bill {
@@ -22,6 +22,8 @@ interface PaidItem {
     status: 'Paid';
 }
 
+import { MOCK_FINANCIAL_HISTORY } from '../data/mockFinancials';
+
 const MOCK_UNPAID_BILLS: Bill[] = [
     { id: '1', payee: 'Adobe Creative Cloud', amount: '$54.99', dueDate: 'Oct 25, 2024', status: 'Overdue', days: 2, category: 'Software' },
     { id: '2', payee: 'WeWork Office Rent', amount: '$1,200.00', dueDate: 'Nov 01, 2024', status: 'Due', days: 5, category: 'Rent' },
@@ -35,23 +37,26 @@ const MOCK_PAID_HISTORY: PaidItem[] = [
     { id: '4', payee: 'Client Lunch', amount: '$125.00', date: 'Oct 12, 2024', type: 'Expense', category: 'Meals', status: 'Paid' },
 ];
 
-const MOCK_CHART_DATA = [
-    { month: 'May', income: 4000, expenses: 2400 },
-    { month: 'Jun', income: 3000, expenses: 1398 },
-    { month: 'Jul', income: 2000, expenses: 9800 },
-    { month: 'Aug', income: 2780, expenses: 3908 },
-    { month: 'Sep', income: 1890, expenses: 4800 },
-    { month: 'Oct', income: 2390, expenses: 3800 },
-    { month: 'Nov', income: 3490, expenses: 4300 },
-];
-
 export const Bills: React.FC = () => {
+    const [isExpenseModalOpen, setIsExpenseModalOpen] = React.useState(false);
+    const [isBillModalOpen, setIsBillModalOpen] = React.useState(false);
+
     return (
         <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
             {/* Add New Section */}
             <div style={{ marginBottom: '24px', display: 'flex', gap: '16px' }}>
-                <CreateCard icon={<CreditCard size={20} />} title="Add Expense" description="Log a new expense" />
-                <CreateCard icon={<Receipt size={20} />} title="Add Bill" description="Track a new bill" />
+                <CreateCard
+                    icon={<CreditCard size={20} />}
+                    title="Add Expense"
+                    description="Log a new expense"
+                    onClick={() => setIsExpenseModalOpen(true)}
+                />
+                <CreateCard
+                    icon={<Receipt size={20} />}
+                    title="Add Bill"
+                    description="Track a new bill"
+                    onClick={() => setIsBillModalOpen(true)}
+                />
             </div>
 
             {/* Charts Grid */}
@@ -61,7 +66,7 @@ export const Bills: React.FC = () => {
                     <h2 style={{ fontSize: '16px', fontWeight: '600', color: '#1E293B', marginBottom: '16px' }}>Financial Overview</h2>
                     <div style={{ height: '250px', width: '100%' }}>
                         <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={MOCK_CHART_DATA} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                            <LineChart data={MOCK_FINANCIAL_HISTORY} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                                 <XAxis
                                     dataKey="month"
@@ -103,13 +108,8 @@ export const Bills: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Placeholder for Second Chart */}
-                <div style={{ background: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', color: '#94A3B8' }}>
-                    <div style={{ marginBottom: '12px', padding: '16px', background: '#F1F5F9', borderRadius: '50%' }}>
-                        <Plus size={24} />
-                    </div>
-                    <span style={{ fontSize: '14px', fontWeight: '500' }}>Add another chart</span>
-                </div>
+                {/* Second Column Empty as requested */}
+                <div></div>
             </div>
 
             {/* Panels Grid */}
@@ -182,6 +182,22 @@ export const Bills: React.FC = () => {
                     </div>
                 </Section>
             </div>
+
+            {/* Modals */}
+            {isExpenseModalOpen && (
+                <TransactionModal
+                    title="Add Expense"
+                    onClose={() => setIsExpenseModalOpen(false)}
+                    type="Expense"
+                />
+            )}
+            {isBillModalOpen && (
+                <TransactionModal
+                    title="Add Bill"
+                    onClose={() => setIsBillModalOpen(false)}
+                    type="Bill"
+                />
+            )}
         </div>
     );
 };
@@ -193,22 +209,24 @@ const Section = ({ title, children }: { title: string, children: React.ReactNode
     </div>
 );
 
-const CreateCard = ({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) => (
-    <button style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '16px',
-        background: 'white',
-        border: '1px solid #E2E8F0',
-        borderRadius: '8px',
-        cursor: 'pointer',
-        textAlign: 'center',
-        transition: 'all 0.2s ease',
-        height: 'auto',
-        minWidth: '160px'
-    }}
+const CreateCard = ({ icon, title, description, onClick }: { icon: React.ReactNode, title: string, description: string, onClick?: () => void }) => (
+    <button
+        onClick={onClick}
+        style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '16px',
+            background: 'white',
+            border: '1px solid #E2E8F0',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            textAlign: 'center',
+            transition: 'all 0.2s ease',
+            height: 'auto',
+            minWidth: '160px'
+        }}
         onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = '#3B82F6';
             e.currentTarget.style.transform = 'translateY(-2px)';
@@ -259,5 +277,106 @@ const StatusBadge = ({ status, days }: { status: 'Due' | 'Overdue', days: number
             {icon}
             {text}
         </span>
+    );
+};
+
+// Transaction Modal Component
+const TransactionModal = ({ title, onClose, type }: { title: string, onClose: () => void, type: 'Bill' | 'Expense' }) => {
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+        }} onClick={onClose}>
+            <div style={{
+                background: 'white',
+                borderRadius: '12px',
+                width: '400px',
+                padding: '24px',
+                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+            }} onClick={e => e.stopPropagation()}>
+                <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1E293B', marginBottom: '24px' }}>{title}</h3>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <div>
+                        <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#64748B', marginBottom: '6px' }}>Payee</label>
+                        <input
+                            type="text"
+                            placeholder="e.g. Adobe, Office Works"
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #E2E8F0', fontSize: '14px', boxSizing: 'border-box' }}
+                        />
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#64748B', marginBottom: '6px' }}>Amount</label>
+                        <input
+                            type="text"
+                            placeholder="$0.00"
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #E2E8F0', fontSize: '14px', boxSizing: 'border-box' }}
+                        />
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#64748B', marginBottom: '6px' }}>Due Date</label>
+                        <input
+                            type="date"
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #E2E8F0', fontSize: '14px', boxSizing: 'border-box' }}
+                        />
+                    </div>
+
+                    <div>
+                        <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#64748B', marginBottom: '6px' }}>Category</label>
+                        <select style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #E2E8F0', fontSize: '14px', boxSizing: 'border-box', background: 'white' }}>
+                            <option>Select a category</option>
+                            <option>Software</option>
+                            <option>Rent</option>
+                            <option>Utilities</option>
+                            <option>Equipment</option>
+                            <option>Travel</option>
+                            <option>Meals</option>
+                            <option>Other</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '32px' }}>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '10px 16px',
+                            borderRadius: '6px',
+                            border: '1px solid #E2E8F0',
+                            background: 'white',
+                            color: '#64748B',
+                            fontWeight: '500',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '10px 16px',
+                            borderRadius: '6px',
+                            border: 'none',
+                            background: '#3B82F6',
+                            color: 'white',
+                            fontWeight: '500',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Save {type}
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 };

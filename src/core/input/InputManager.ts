@@ -1,4 +1,4 @@
-import { insertText, deleteText, splitParagraph, getRangeText, deleteRange, toggleStyle, setParagraphAlignment, insertFragment, toggleList } from '../model/DocumentModel';
+import { insertText, deleteText, splitParagraph, getRangeText, deleteRange, toggleStyle, setParagraphAlignment, insertFragment, toggleList, insertImage } from '../model/DocumentModel';
 import type { DocumentModel } from '../model/DocumentModel';
 import { EditorState } from '../state/EditorState';
 import { ClipboardUtils } from '../utils/ClipboardUtils';
@@ -9,17 +9,18 @@ export class InputManager {
     private editorState: EditorState;
     private onUpdate: () => void;
 
-    constructor(documentModel: DocumentModel, editorState: EditorState, onUpdate: () => void) {
+    constructor(container: HTMLElement, documentModel: DocumentModel, editorState: EditorState, onUpdate: () => void) {
         this.documentModel = documentModel;
         this.editorState = editorState;
         this.onUpdate = onUpdate;
 
         this.textarea = document.createElement('textarea');
-        this.setupTextarea();
+        this.setupTextarea(container);
+        this.setupDragAndDrop(container);
         this.attachEventListeners();
     }
 
-    private setupTextarea() {
+    private setupTextarea(container: HTMLElement) {
         this.textarea.style.position = 'absolute';
         // Keep opacity 0, but ensure it's technically "on screen"
         this.textarea.style.opacity = '0';
@@ -33,8 +34,58 @@ export class InputManager {
         this.textarea.setAttribute('autocapitalize', 'off');
         this.textarea.setAttribute('spellcheck', 'false');
 
-        document.body.appendChild(this.textarea);
+        container.appendChild(this.textarea);
     }
+
+    private setupDragAndDrop(container: HTMLElement) {
+        container.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+
+        container.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                if (file.type.startsWith('image/')) {
+                    this.handleImageUpload(file);
+                }
+            }
+        });
+    }
+
+    public handleImageUpload(file: File) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const src = e.target?.result as string;
+            if (src) {
+                // Get image dimensions
+                const img = new Image();
+                img.onload = () => {
+                    // Calculate width/height (limit max width?)
+                    // For now use natural size or limit to 500px width
+                    let width = img.naturalWidth;
+                    let height = img.naturalHeight;
+                    const MAX_WIDTH = 500;
+                    if (width > MAX_WIDTH) {
+                        const ratio = MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                        height = height * ratio;
+                    }
+
+                    if (this.editorState.selection) {
+                        insertImage(this.documentModel, this.editorState.selection, src, width, height);
+                        this.onUpdate();
+                    }
+                };
+                img.src = src;
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
 
     private attachEventListeners() {
         this.textarea.addEventListener('input', (e) => {
@@ -67,35 +118,38 @@ export class InputManager {
                     // Ideally we get full text of paragraph but checking first span is usually enough for start-of-line triggers
                     if (paragraph.children.length > 0) {
                         const firstSpan = paragraph.children[0];
-                        const text = firstSpan.text;
 
-                        // Check patterns
-                        // 1. Bullet: "- "
-                        if (text.startsWith('- ') && cursor.spanIndex === 0 && cursor.charIndex === 2) {
-                            // Remove "- "
-                            firstSpan.text = text.substring(2);
-                            this.editorState.selection.head.charIndex -= 2;
-                            this.editorState.selection.anchor.charIndex -= 2;
-                            // Set List Type
-                            toggleList(this.documentModel, this.editorState.selection, 'bullet');
-                        }
-                        // 2. Numbered: "1. "
-                        else if (text.startsWith('1. ') && cursor.spanIndex === 0 && cursor.charIndex === 3) {
-                            // Remove "1. "
-                            firstSpan.text = text.substring(3);
-                            this.editorState.selection.head.charIndex -= 3;
-                            this.editorState.selection.anchor.charIndex -= 3;
-                            // Set List Type
-                            toggleList(this.documentModel, this.editorState.selection, 'number');
-                        }
-                        // 3. Checklist: "[] "
-                        else if (text.startsWith('[] ') && cursor.spanIndex === 0 && cursor.charIndex === 3) {
-                            // Remove "[] "
-                            firstSpan.text = text.substring(3);
-                            this.editorState.selection.head.charIndex -= 3;
-                            this.editorState.selection.anchor.charIndex -= 3;
-                            // Set List Type
-                            toggleList(this.documentModel, this.editorState.selection, 'check');
+                        if (firstSpan.type === 'span') {
+                            const text = firstSpan.text;
+
+                            // Check patterns
+                            // 1. Bullet: "- "
+                            if (text.startsWith('- ') && cursor.spanIndex === 0 && cursor.charIndex === 2) {
+                                // Remove "- "
+                                firstSpan.text = text.substring(2);
+                                this.editorState.selection.head.charIndex -= 2;
+                                this.editorState.selection.anchor.charIndex -= 2;
+                                // Set List Type
+                                toggleList(this.documentModel, this.editorState.selection, 'bullet');
+                            }
+                            // 2. Numbered: "1. "
+                            else if (text.startsWith('1. ') && cursor.spanIndex === 0 && cursor.charIndex === 3) {
+                                // Remove "1. "
+                                firstSpan.text = text.substring(3);
+                                this.editorState.selection.head.charIndex -= 3;
+                                this.editorState.selection.anchor.charIndex -= 3;
+                                // Set List Type
+                                toggleList(this.documentModel, this.editorState.selection, 'number');
+                            }
+                            // 3. Checklist: "[] "
+                            else if (text.startsWith('[] ') && cursor.spanIndex === 0 && cursor.charIndex === 3) {
+                                // Remove "[] "
+                                firstSpan.text = text.substring(3);
+                                this.editorState.selection.head.charIndex -= 3;
+                                this.editorState.selection.anchor.charIndex -= 3;
+                                // Set List Type
+                                toggleList(this.documentModel, this.editorState.selection, 'check');
+                            }
                         }
                     }
                 }
@@ -126,7 +180,7 @@ export class InputManager {
                 // Select from start (0,0,0) to end of doc
                 this.editorState.setSelection(
                     { paragraphIndex: 0, spanIndex: 0, charIndex: 0 },
-                    { paragraphIndex: lastParaIndex, spanIndex: lastSpanIndex, charIndex: lastSpan.text.length }
+                    { paragraphIndex: lastParaIndex, spanIndex: lastSpanIndex, charIndex: lastSpan.type === 'span' ? lastSpan.text.length : 1 }
                 );
 
                 this.onUpdate();
@@ -221,7 +275,7 @@ export class InputManager {
                 const paragraph = section.children[cursor.paragraphIndex];
 
                 // Check if paragraph is empty (single empty span)
-                const isEmpty = paragraph.children.length === 1 && paragraph.children[0].text.length === 0;
+                const isEmpty = paragraph.children.length === 1 && paragraph.children[0].type === 'span' && paragraph.children[0].text.length === 0;
 
                 if (paragraph.listType && isEmpty) {
                     // Exit list mode
@@ -271,7 +325,7 @@ export class InputManager {
 
                     cursor.paragraphIndex = prevIndex;
                     cursor.spanIndex = prevParagraph.children.length - 1;
-                    cursor.charIndex = lastSpan.text.length;
+                    cursor.charIndex = lastSpan.type === 'span' ? lastSpan.text.length : 1;
                 }
 
                 // Sync anchor if shift not pressed (TODO: Handle shift for selection)
@@ -286,8 +340,12 @@ export class InputManager {
                 const span = paragraph.children[cursor.spanIndex];
 
                 // Case 1: Middle of paragraph
-                if (cursor.charIndex < span.text.length) {
+                if (span.type === 'span' && cursor.charIndex < span.text.length) {
                     cursor.charIndex++;
+                }
+                else if (span.type !== 'span' && cursor.charIndex === 0) {
+                    // Move past image
+                    cursor.charIndex = 1;
                 }
                 // Case 2: End of paragraph (Go to start of next)
                 else if (cursor.paragraphIndex < section.children.length - 1) {

@@ -3,7 +3,7 @@ import { fontService } from '../font/FontService';
 import type { CursorPosition } from '../state/EditorState';
 
 export interface RenderGlyph {
-    type?: 'text' | 'checkbox_checked' | 'checkbox_unchecked';
+    type?: 'text' | 'checkbox_checked' | 'checkbox_unchecked' | 'image';
     char: string;
     x: number;
     y: number;
@@ -14,6 +14,9 @@ export interface RenderGlyph {
     italic?: boolean;
     underline?: boolean;
     color?: string;
+    imageSrc?: string;
+    imageWidth?: number;
+    imageHeight?: number;
     // Metadata for hit testing
     source: {
         paragraphIndex: number;
@@ -43,7 +46,7 @@ export interface PageConstraints {
 
 // Types for Knuth-Plass
 type LayoutItem =
-    | { type: 'BOX'; width: number; char: string; style: Style; source: { paragraphIndex: number; spanIndex: number; charIndex: number } }
+    | { type: 'BOX'; width: number; char: string; style: Style; source: { paragraphIndex: number; spanIndex: number; charIndex: number }; image?: { src: string, width: number, height: number } }
     | { type: 'GLUE'; width: number; stretch: number; shrink: number; originalChar: string; style: Style; source: { paragraphIndex: number; spanIndex: number; charIndex: number } }
     | { type: 'PENALTY'; width: number; cost: number; flagged: boolean };
 
@@ -204,9 +207,22 @@ export class LayoutEngine {
         const items: LayoutItem[] = [];
 
         let spanIndex = 0;
-        for (const span of paragraph.children) {
-            const style = span.style;
-            const text = span.text;
+        for (const node of paragraph.children) {
+            if (node.type === 'image') {
+                items.push({
+                    type: 'BOX',
+                    width: node.width,
+                    char: '',
+                    style: { fontFamily: 'Roboto-Regular', fontSize: 0 }, // Dummy style
+                    source: { paragraphIndex, spanIndex, charIndex: 0 },
+                    image: { src: node.src, width: node.width, height: node.height }
+                });
+                spanIndex++;
+                continue;
+            }
+
+            const style = node.style;
+            const text = node.text;
 
             if (text.length === 0) {
                 // Handle empty span (Ghost Box)
@@ -268,7 +284,8 @@ export class LayoutEngine {
         const items = this.tokenizeParagraph(paragraph, paragraphIndex);
         const glyphs: RenderGlyph[] = [];
 
-        const style = paragraph.children[0]?.style || { fontFamily: 'Roboto-Regular', fontSize: 16 };
+        const firstChild = paragraph.children[0];
+        const style = (firstChild && firstChild.type === 'span') ? firstChild.style : { fontFamily: 'Roboto-Regular', fontSize: 16 };
         // We will calculate line height dynamically based on max font size in line
         let currentY = startY;
 
@@ -374,7 +391,11 @@ export class LayoutEngine {
                 const item = items[j];
                 // Metrics for line height
                 if (item.type === 'BOX' || item.type === 'GLUE') {
-                    if (item.style) {
+                    if (item.type === 'BOX' && item.image) {
+                        // Image height contributes to ascender (assuming bottom align)
+                        maxAscender = Math.max(maxAscender, item.image.height);
+                        // No descender for image usually, unless we align differently
+                    } else if (item.style) {
                         const m = fontService.getVerticalMetrics(item.style.fontFamily, item.style.fontSize, item.style.bold, item.style.italic);
                         maxAscender = Math.max(maxAscender, m.ascender);
                         maxDescender = Math.min(maxDescender, m.descender);
@@ -482,19 +503,35 @@ export class LayoutEngine {
                 if (item.source.spanIndex === -1) continue;
 
                 if (item.type === 'BOX') {
-                    glyphs.push({
-                        char: item.char,
-                        x: x,
-                        y: baselineY,
-                        width: item.width,
-                        fontFamily: item.style?.fontFamily || style.fontFamily,
-                        fontSize: item.style?.fontSize || style.fontSize,
-                        bold: item.style?.bold,
-                        italic: item.style?.italic,
-                        color: item.style?.color,
-                        underline: item.style?.underline,
-                        source: item.source
-                    });
+                    if (item.image) {
+                        glyphs.push({
+                            type: 'image',
+                            char: '',
+                            x: x,
+                            y: baselineY - item.image.height, // Draw from top-left, so subtract height from baseline
+                            width: item.width,
+                            fontFamily: '',
+                            fontSize: 0,
+                            imageSrc: item.image.src,
+                            imageWidth: item.image.width,
+                            imageHeight: item.image.height,
+                            source: item.source
+                        });
+                    } else {
+                        glyphs.push({
+                            char: item.char,
+                            x: x,
+                            y: baselineY,
+                            width: item.width,
+                            fontFamily: item.style?.fontFamily || style.fontFamily,
+                            fontSize: item.style?.fontSize || style.fontSize,
+                            bold: item.style?.bold,
+                            italic: item.style?.italic,
+                            color: item.style?.color,
+                            underline: item.style?.underline,
+                            source: item.source
+                        });
+                    }
                     x += item.width;
                 } else if (item.type === 'GLUE') {
                     let adjustedWidth = item.width;

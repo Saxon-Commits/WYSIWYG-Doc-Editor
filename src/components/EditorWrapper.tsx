@@ -1,25 +1,34 @@
 import React, { useEffect, useRef } from 'react';
-import { mountEditor } from '../main';
+import { mountEditor } from '../core/mount';
 import { useParams } from 'react-router-dom';
 
 export const EditorWrapper: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const { id } = useParams<{ id: string }>();
-    const cleanupRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
-        if (containerRef.current) {
-            // Mount the editor
-            const init = async () => {
-                cleanupRef.current = await mountEditor(containerRef.current!, id);
-            };
-            init();
-        }
+        let isMounted = true;
+        let cleanupFn: (() => void) | undefined;
+
+        const init = async () => {
+            if (containerRef.current) {
+                // Mount the editor
+                const cleanup = await mountEditor(containerRef.current, id);
+                if (isMounted) {
+                    cleanupFn = cleanup;
+                } else {
+                    // Component unmounted while loading, clean up immediately
+                    cleanup();
+                }
+            }
+        };
+
+        init();
 
         return () => {
-            // Cleanup on unmount
-            if (cleanupRef.current) {
-                cleanupRef.current();
+            isMounted = false;
+            if (cleanupFn) {
+                cleanupFn();
             }
             if (containerRef.current) {
                 containerRef.current.innerHTML = '';
@@ -27,5 +36,5 @@ export const EditorWrapper: React.FC = () => {
         };
     }, [id]);
 
-    return <div ref={containerRef} style={{ width: '100%', height: '100vh', overflow: 'hidden' }} />;
+    return <div ref={containerRef} style={{ width: '100%', height: '100%', overflow: 'auto', backgroundColor: '#e0e0e0', position: 'relative', paddingBottom: '50vh' }} />;
 };

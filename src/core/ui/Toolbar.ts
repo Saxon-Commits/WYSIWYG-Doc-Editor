@@ -1,4 +1,4 @@
-import { setParagraphAlignment, toggleStyle, applyStyle, deserializeDocument, toggleList, setParagraphSpacing } from '../model/DocumentModel';
+import { setParagraphAlignment, toggleStyle, applyStyle, deserializeDocument, toggleList, setParagraphSpacing, insertImage } from '../model/DocumentModel';
 import type { DocumentModel, Style } from '../model/DocumentModel';
 import type { EditorState } from '../state/EditorState';
 
@@ -24,6 +24,7 @@ export class Toolbar {
     private currentDocId: string | null = null;
 
     constructor(
+        container: HTMLElement,
         documentModel: DocumentModel,
         editorState: EditorState,
         onUpdate: () => void,
@@ -38,10 +39,14 @@ export class Toolbar {
         this.element = document.createElement('div');
         this.element.className = 'editor-toolbar';
         this.setupButtons();
-        // Insert before the app container or inside it
-        const app = document.getElementById('app');
-        if (app) {
-            app.insertBefore(this.element, app.firstChild);
+
+        // Append to the specific container
+        container.prepend(this.element);
+    }
+
+    public destroy() {
+        if (this.element && this.element.parentNode) {
+            this.element.parentNode.removeChild(this.element);
         }
     }
 
@@ -98,7 +103,6 @@ export class Toolbar {
             const option = document.createElement('option');
             option.value = s.value;
             option.textContent = s.label;
-            if (s.value === '1.15') option.selected = true; // Default
             spacingSelect.appendChild(option);
         });
         spacingSelect.addEventListener('change', (e) => {
@@ -107,6 +111,15 @@ export class Toolbar {
         });
         spacingGroup.appendChild(spacingSelect);
         this.element.appendChild(spacingGroup);
+
+        // --- 7. Insert Group ---
+        const insertGroup = document.createElement('div');
+        insertGroup.className = 'toolbar-group';
+
+        const imageBtn = this.createButton('🖼️ Image', () => this.triggerImageUpload());
+        insertGroup.appendChild(imageBtn);
+        this.element.appendChild(insertGroup);
+
 
         // --- 2. Font Family Selector ---
         const fontGroup = document.createElement('div');
@@ -191,6 +204,46 @@ export class Toolbar {
         });
     }
 
+    private triggerImageUpload() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.onchange = (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (file) {
+                this.handleImageFile(file);
+            }
+        };
+        input.click();
+    }
+
+    private handleImageFile(file: File) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const src = e.target?.result as string;
+            if (src) {
+                const img = new Image();
+                img.onload = () => {
+                    let width = img.naturalWidth;
+                    let height = img.naturalHeight;
+                    const MAX_WIDTH = 500;
+                    if (width > MAX_WIDTH) {
+                        const ratio = MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                        height = height * ratio;
+                    }
+
+                    if (this.editorState.selection) {
+                        insertImage(this.documentModel, this.editorState.selection, src, width, height);
+                        this.onUpdate();
+                    }
+                };
+                img.src = src;
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
     private handleFontChange(fontFamily: string) {
         if (!this.editorState.selection) return;
         applyStyle(this.documentModel, this.editorState.selection, { fontFamily });
@@ -235,7 +288,7 @@ export class Toolbar {
 
         const fullSelection = {
             anchor: { paragraphIndex: p1, spanIndex: 0, charIndex: 0 },
-            head: { paragraphIndex: p2, spanIndex: lastSpanIdx, charIndex: lastSpan.text.length }
+            head: { paragraphIndex: p2, spanIndex: lastSpanIdx, charIndex: lastSpan.type === 'span' ? lastSpan.text.length : 1 }
         };
 
         applyStyle(this.documentModel, fullSelection, style);

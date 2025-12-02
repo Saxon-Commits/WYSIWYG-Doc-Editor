@@ -13,9 +13,20 @@ export interface Span {
     style: Style;
 }
 
+export interface Image {
+    type: 'image';
+    src: string;
+    width: number;
+    height: number;
+    alt?: string;
+    id: string;
+}
+
+export type InlineNode = Span | Image;
+
 export interface Paragraph {
     type: 'paragraph';
-    children: Span[];
+    children: InlineNode[];
     style?: Style; // Fallback style
     alignment?: 'left' | 'center' | 'right' | 'justify';
     listType?: 'bullet' | 'number' | 'check';
@@ -121,8 +132,10 @@ export function getRangeText(document: DocumentModel, selection: Selection): str
 
         // Collect text from spans
         for (let s = 0; s < paragraph.children.length; s++) {
-            const span = paragraph.children[s];
-            let spanText = span.text;
+            const node = paragraph.children[s];
+            if (node.type !== 'span') continue; // Skip images for text extraction
+
+            let spanText = node.text;
 
             // If this is the start paragraph, slice from start char
             if (p === start.paragraphIndex && s === start.spanIndex) {
@@ -133,15 +146,9 @@ export function getRangeText(document: DocumentModel, selection: Selection): str
 
             // If this is the end paragraph, slice to end char
             if (p === end.paragraphIndex && s === end.spanIndex) {
-                // If start and end are in same span, we already sliced start.
-                // But wait, if same span, we need to slice the ORIGINAL text?
-                // No, if same span, we want substring(start, end).
-                // My logic above sliced start.
-                // Let's refine.
-
                 if (p === start.paragraphIndex && s === start.spanIndex) {
                     // Same span
-                    spanText = span.text.substring(start.charIndex, end.charIndex);
+                    spanText = node.text.substring(start.charIndex, end.charIndex);
                 } else {
                     spanText = spanText.substring(0, end.charIndex);
                 }
@@ -173,14 +180,26 @@ export function deleteRange(document: DocumentModel, selection: Selection): void
 
     const startPara = section.children[start.paragraphIndex];
     const endPara = section.children[end.paragraphIndex];
-    const startSpan = startPara.children[start.spanIndex];
-    const endSpan = endPara.children[end.spanIndex];
+    const startNode = startPara.children[start.spanIndex];
+    const endNode = endPara.children[end.spanIndex];
 
-    // 2. Single Span Case
+    // 2. Single Node Case
     if (start.paragraphIndex === end.paragraphIndex && start.spanIndex === end.spanIndex) {
-        const before = startSpan.text.substring(0, start.charIndex);
-        const after = startSpan.text.substring(end.charIndex);
-        startSpan.text = before + after;
+        if (startNode.type === 'span') {
+            const before = startNode.text.substring(0, start.charIndex);
+            const after = startNode.text.substring(end.charIndex);
+            startNode.text = before + after;
+        } else {
+            // It's an image or other node. If we are deleting range inside it?
+            // Usually range over image means we delete the image.
+            // But here start==end span index.
+            // If charIndex diff covers the image (e.g. 0 to 1), delete it.
+            // For now, if it's an image, just remove it if range covers it?
+            // Or do nothing if it's a point selection?
+            if (start.charIndex !== end.charIndex) {
+                startPara.children.splice(start.spanIndex, 1);
+            }
+        }
 
         // Update cursor
         selection.head = { ...start };
@@ -188,30 +207,45 @@ export function deleteRange(document: DocumentModel, selection: Selection): void
         return;
     }
 
-    // 3. Multi-Span / Multi-Para Case
+    // 3. Multi-Node / Multi-Para Case
 
-    // A. Truncate Start Span
-    startSpan.text = startSpan.text.substring(0, start.charIndex);
+    // A. Truncate Start Node
+    if (startNode.type === 'span') {
+        startNode.text = startNode.text.substring(0, start.charIndex);
+    }
 
-    // B. Truncate End Span (keep tail)
-    const endSpanTail = endSpan.text.substring(end.charIndex);
-    // We will append this tail to the start span (or a new span at end of start para)
-    // Actually, we usually merge the END paragraph into the START paragraph.
+    // B. Truncate End Node (keep tail)
+    let endNodeTail: InlineNode | null = null;
+    if (endNode.type === 'span') {
+        const text = endNode.text.substring(end.charIndex);
+        endNodeTail = createSpan(text, endNode.style);
+    } else {
+        // If end is image, and we are deleting FROM it, do we keep it?
+        // If charIndex > 0, we keep it?
+        // Simplified: If end is image, we delete it unless charIndex is 0 (which means we are before it, so it's part of "after" content)
+        // Actually, if charIndex == 0, we include it in the "tail" to be moved.
+        if (end.charIndex === 0) {
+            endNodeTail = endNode;
+        }
+    }
 
-    // C. Remove intermediate spans in start paragraph
+    // C. Remove intermediate nodes in start paragraph
     startPara.children = startPara.children.slice(0, start.spanIndex + 1);
 
     // D. Remove intermediate paragraphs
-    // We need to remove paragraphs between start and end (exclusive)
-    // And remove start of end paragraph.
+    // ...
 
-    // Collect remaining spans from end paragraph
-    const endParaRemainingSpans = endPara.children.slice(end.spanIndex);
-    // Update the first remaining span (which was the end span)
-    endParaRemainingSpans[0].text = endSpanTail;
+    // Collect remaining nodes from end paragraph
+    // We start from end.spanIndex + 1, because endNode was split/handled.
+    // BUT if endNodeTail exists, we need to add it.
+    const endParaRemainingNodes = endPara.children.slice(end.spanIndex + 1);
+
+    if (endNodeTail) {
+        endParaRemainingNodes.unshift(endNodeTail);
+    }
 
     // E. Merge end paragraph content into start paragraph
-    startPara.children.push(...endParaRemainingSpans);
+    startPara.children.push(...endParaRemainingNodes);
 
     // F. Remove paragraphs from start+1 to end (inclusive)
     const deleteCount = end.paragraphIndex - start.paragraphIndex;
@@ -236,18 +270,64 @@ function getSortedSelection(selection: Selection) {
     return isAnchorBefore ? { start: anchor, end: head } : { start: head, end: anchor };
 }
 
-export function insertText(document: DocumentModel, selection: Selection, text: string): void {
+export const createImage = (src: string, width: number, height: number, alt?: string): Image => ({
+    type: 'image',
+    src,
+    width,
+    height,
+    alt,
+    id: crypto.randomUUID()
+});
+
+export function insertImage(document: DocumentModel, selection: Selection, src: string, width: number, height: number): void {
     const cursor = selection.head;
     const paragraph = document.sections[0].children[cursor.paragraphIndex];
     if (!paragraph) return;
 
     const span = paragraph.children[cursor.spanIndex];
-    if (!span) return;
 
+    // We can only split spans, not images. 
+    // If cursor is on an image, we should probably insert after it?
+    // For now, assume cursor is always in a span or at boundary.
+    if (!span || span.type !== 'span') {
+        // If we are at the end of paragraph or between nodes, logic is needed.
+        // Simplified: Insert at end if span is missing/invalid for now
+        const image = createImage(src, width, height);
+        paragraph.children.splice(cursor.spanIndex + 1, 0, image);
+        return;
+    }
+
+    // Split current span
     const before = span.text.substring(0, cursor.charIndex);
     const after = span.text.substring(cursor.charIndex);
 
-    span.text = before + text + after;
+    span.text = before;
+
+    const image = createImage(src, width, height);
+    const afterSpan = createSpan(after, span.style);
+
+    // Insert: [Span(before)] [Image] [Span(after)]
+    paragraph.children.splice(cursor.spanIndex + 1, 0, image, afterSpan);
+
+    // Update cursor to be after the image (start of afterSpan)
+    cursor.spanIndex += 2;
+    cursor.charIndex = 0;
+    selection.anchor = { ...cursor };
+}
+
+export function insertText(document: DocumentModel, selection: Selection, text: string): void {
+    const cursor = selection.head;
+    const paragraph = document.sections[0].children[cursor.paragraphIndex];
+    if (!paragraph) return;
+
+    const node = paragraph.children[cursor.spanIndex];
+    // Guard against inserting text into non-text node
+    if (!node || node.type !== 'span') return;
+
+    const before = node.text.substring(0, cursor.charIndex);
+    const after = node.text.substring(cursor.charIndex);
+
+    node.text = before + text + after;
     cursor.charIndex += text.length;
     selection.anchor = { ...cursor };
 }
@@ -262,29 +342,43 @@ export function insertFragment(document: DocumentModel, selection: Selection, pa
     if (paragraphs.length === 1) {
         const para = paragraphs[0];
         const targetPara = section.children[cursor.paragraphIndex];
-        const targetSpan = targetPara.children[cursor.spanIndex];
+        const targetNode = targetPara.children[cursor.spanIndex];
 
-        // Split current span
-        const beforeText = targetSpan.text.substring(0, cursor.charIndex);
-        const afterText = targetSpan.text.substring(cursor.charIndex);
+        if (targetNode && targetNode.type === 'span') {
+            // Split current span
+            const beforeText = targetNode.text.substring(0, cursor.charIndex);
+            const afterText = targetNode.text.substring(cursor.charIndex);
 
-        targetSpan.text = beforeText;
+            targetNode.text = beforeText;
 
-        // Insert new spans
-        // We need to clone to avoid reference issues
-        const newSpans = para.children.map(s => ({ ...s }));
+            // Insert new spans
+            const newSpans = para.children.map(s => ({ ...s }));
 
-        // Create span for after text
-        const afterSpan = createSpan(afterText, targetSpan.style);
+            // Create span for after text
+            const afterSpan = createSpan(afterText, targetNode.style);
 
-        // Insert: [CurrentSpan(before)] ...[NewSpans]... [AfterSpan] ...[Rest]
-        targetPara.children.splice(cursor.spanIndex + 1, 0, ...newSpans, afterSpan);
+            // Insert: [CurrentSpan(before)] ...[NewSpans]... [AfterSpan] ...[Rest]
+            targetPara.children.splice(cursor.spanIndex + 1, 0, ...newSpans, afterSpan);
 
-        // Update cursor
-        cursor.spanIndex += newSpans.length;
-        cursor.charIndex = 0; // At start of afterSpan
-        selection.anchor = { ...cursor };
-        return;
+            // Update cursor
+            cursor.spanIndex += newSpans.length;
+            cursor.charIndex = 0; // At start of afterSpan
+            selection.anchor = { ...cursor };
+            return;
+        } else {
+            // Target is image or undefined (end of para).
+            // Just insert at cursor position.
+            const newSpans = para.children.map(s => ({ ...s }));
+            // If cursor.spanIndex points to an image, and charIndex is 0, insert before?
+            // If charIndex is 1?
+            // Simplified: Insert at spanIndex + 1 if we are "after" the node.
+            // But cursor logic for image is tricky.
+            // Assume insert at splice index.
+            targetPara.children.splice(cursor.spanIndex, 0, ...newSpans);
+            cursor.spanIndex += newSpans.length;
+            selection.anchor = { ...cursor };
+            return;
+        }
     }
 
     // Case 2: Multi-Paragraph Paste
@@ -345,27 +439,38 @@ export function deleteText(document: DocumentModel, selection: Selection, direct
     const span = paragraph.children[cursor.spanIndex];
     if (!span) return;
 
+    const node = paragraph.children[cursor.spanIndex];
+    if (!node) return;
+
     if (direction === 'backward') {
-        if (cursor.charIndex > 0) {
+        if (node.type === 'span' && cursor.charIndex > 0) {
             // Simple deletion within span
-            const before = span.text.substring(0, cursor.charIndex - 1);
-            const after = span.text.substring(cursor.charIndex);
-            span.text = before + after;
+            const before = node.text.substring(0, cursor.charIndex - 1);
+            const after = node.text.substring(cursor.charIndex);
+            node.text = before + after;
             cursor.charIndex--;
         } else if (cursor.spanIndex > 0) {
-            // Merge with previous span (simplified)
-            // For now, just move cursor to end of previous span
+            // Merge with previous node
             cursor.spanIndex--;
-            const prevSpan = paragraph.children[cursor.spanIndex];
-            cursor.charIndex = prevSpan.text.length;
-            // Recursive call to delete last char of prev span? 
-            // Or just let next backspace handle it? 
-            // User wants backspace to delete.
-            // If we are at start of span, we need to merge or delete from prev span.
-            // Let's just delete from prev span text.
-            const before = prevSpan.text.substring(0, prevSpan.text.length - 1);
-            prevSpan.text = before;
-            cursor.charIndex = prevSpan.text.length;
+            const prevNode = paragraph.children[cursor.spanIndex];
+
+            if (prevNode.type === 'span') {
+                cursor.charIndex = prevNode.text.length;
+                const before = prevNode.text.substring(0, prevNode.text.length - 1);
+                prevNode.text = before;
+                cursor.charIndex = prevNode.text.length;
+            } else {
+                // Previous node is image. Delete it?
+                // Yes, backspace after image deletes image.
+                paragraph.children.splice(cursor.spanIndex, 1);
+                // Cursor is now at start of the node that WAS after the image (which is `node`).
+                // So spanIndex stays same (but shifted because we removed one).
+                // Wait, we decremented spanIndex to point to image.
+                // We removed image at spanIndex.
+                // Now spanIndex points to `node`.
+                // charIndex should be 0.
+                cursor.charIndex = 0;
+            }
         } else if (cursor.paragraphIndex > 0) {
             // Merge Paragraphs
             const prevParagraph = section.children[cursor.paragraphIndex - 1];
@@ -405,10 +510,15 @@ export function deleteText(document: DocumentModel, selection: Selection, direct
         }
     } else {
         // Forward delete
-        if (cursor.charIndex < span.text.length) {
-            const before = span.text.substring(0, cursor.charIndex);
-            const after = span.text.substring(cursor.charIndex + 1);
-            span.text = before + after;
+        if (node.type === 'span' && cursor.charIndex < node.text.length) {
+            const before = node.text.substring(0, cursor.charIndex);
+            const after = node.text.substring(cursor.charIndex + 1);
+            node.text = before + after;
+        } else if (node.type !== 'span') {
+            // Delete image if cursor is before it?
+            // If cursor is on image (index 0), delete it.
+            paragraph.children.splice(cursor.spanIndex, 1);
+            // Cursor stays same.
         } else if (cursor.paragraphIndex < section.children.length - 1) {
             // Merge Next Paragraph
             const nextParagraph = section.children[cursor.paragraphIndex + 1];
@@ -429,25 +539,52 @@ export function splitParagraph(document: DocumentModel, selection: Selection): v
     const paragraph = section.children[cursor.paragraphIndex];
     if (!paragraph) return;
 
-    const span = paragraph.children[cursor.spanIndex];
-    if (!span) return;
+    const node = paragraph.children[cursor.spanIndex];
+    if (!node) return;
+
+    if (node.type !== 'span') {
+        // If it's an image, we can't split it.
+        // If cursor is at 0, we split before.
+        // If cursor is at 1 (or >0), we split after.
+        // For now, assume we just move the image to the new paragraph if cursor is 0?
+        // Or if cursor is after, we move subsequent things.
+
+        // Simplified: If on image, just split AFTER the image.
+        const subsequentNodes = paragraph.children.slice(cursor.spanIndex + 1);
+        const newParagraph: Paragraph = {
+            type: 'paragraph',
+            children: subsequentNodes,
+            alignment: paragraph.alignment,
+            listType: paragraph.listType,
+            checked: paragraph.listType === 'check' ? false : undefined
+        };
+
+        paragraph.children = paragraph.children.slice(0, cursor.spanIndex + 1);
+        section.children.splice(cursor.paragraphIndex + 1, 0, newParagraph);
+
+        cursor.paragraphIndex++;
+        cursor.spanIndex = 0;
+        cursor.charIndex = 0;
+        selection.anchor = { ...cursor };
+        return;
+    }
 
     // 1. Split the current span
-    const beforeText = span.text.substring(0, cursor.charIndex);
-    const afterText = span.text.substring(cursor.charIndex);
+    const beforeText = node.text.substring(0, cursor.charIndex);
+    const afterText = node.text.substring(cursor.charIndex);
 
-    span.text = beforeText;
+    node.text = beforeText;
 
     // 2. Create new span for the second part
-    const newSpan = createSpan(afterText, span.style);
+    const newSpan = createSpan(afterText, node.style);
 
     // 3. Collect all subsequent spans in the current paragraph
-    const subsequentSpans = paragraph.children.slice(cursor.spanIndex + 1);
+    const subsequentNodes = paragraph.children.slice(cursor.spanIndex + 1);
 
     // 4. Create new paragraph with the new span and subsequent spans
     const newParagraph: Paragraph = {
         type: 'paragraph',
-        children: [newSpan, ...subsequentSpans],
+        children: [newSpan, ...subsequentNodes],
         alignment: paragraph.alignment, // Preserve alignment
         listType: paragraph.listType, // Preserve list type
         checked: paragraph.listType === 'check' ? false : undefined // Reset checked for new item
@@ -470,17 +607,17 @@ export function splitParagraph(document: DocumentModel, selection: Selection): v
 
 // Internal helper to split a span at a specific index
 function splitSpan(paragraph: Paragraph, spanIndex: number, charIndex: number): void {
-    const span = paragraph.children[spanIndex];
-    if (!span) return;
+    const node = paragraph.children[spanIndex];
+    if (!node || node.type !== 'span') return;
 
     // If split point is at boundaries, no need to split
-    if (charIndex <= 0 || charIndex >= span.text.length) return;
+    if (charIndex <= 0 || charIndex >= node.text.length) return;
 
-    const leftText = span.text.substring(0, charIndex);
-    const rightText = span.text.substring(charIndex);
+    const leftText = node.text.substring(0, charIndex);
+    const rightText = node.text.substring(charIndex);
 
-    const leftSpan = createSpan(leftText, { ...span.style });
-    const rightSpan = createSpan(rightText, { ...span.style });
+    const leftSpan = createSpan(leftText, { ...node.style });
+    const rightSpan = createSpan(rightText, { ...node.style });
 
     // Replace original span with two new spans
     paragraph.children.splice(spanIndex, 1, leftSpan, rightSpan);
@@ -497,7 +634,8 @@ export function applyStyle(document: DocumentModel, selection: Selection, styleC
 
     // Start Paragraph
     const startPara = section.children[start.paragraphIndex];
-    if (start.charIndex > 0 && start.charIndex < startPara.children[start.spanIndex].text.length) {
+    const startNode = startPara.children[start.spanIndex];
+    if (startNode && startNode.type === 'span' && start.charIndex > 0 && start.charIndex < startNode.text.length) {
         splitSpan(startPara, start.spanIndex, start.charIndex);
         // After split, the "selection start" is now at the beginning of the NEXT span (the right half).
         // So we increment spanIndex and reset charIndex to 0.
@@ -506,24 +644,22 @@ export function applyStyle(document: DocumentModel, selection: Selection, styleC
 
         // If start and end were in the same span, we need to adjust end as well.
         if (start.paragraphIndex === end.paragraphIndex && start.spanIndex - 1 === end.spanIndex) {
-            // This logic is tricky. If start==end originally, we don't apply style usually (unless it's a collapsed cursor style, which is handled differently).
-            // If it's a range within one span:
-            // Span: "Hello World"
-            // Range: "llo" (2 to 5)
-            // Split at 2: "He", "llo World"
-            // Start becomes: Span 1 (index 1), char 0.
-            // End was: Span 0, char 5.
-            // But Span 0 is gone.
-            // End should be: Span 1, char (5-2) = 3.
+            // ... logic ...
             end.spanIndex++;
-            end.charIndex -= (startPara.children[start.spanIndex - 1].text.length); // length of "He"
+            const prevNode = startPara.children[start.spanIndex - 1];
+            if (prevNode.type === 'span') {
+                end.charIndex -= prevNode.text.length;
+            }
         }
     }
 
     // 2. Normalize End
     // If end is in middle of span, split it.
+    // 2. Normalize End
+    // If end is in middle of span, split it.
     const endPara = section.children[end.paragraphIndex];
-    if (end.charIndex > 0 && end.charIndex < endPara.children[end.spanIndex].text.length) {
+    const endNode = endPara.children[end.spanIndex];
+    if (endNode && endNode.type === 'span' && end.charIndex > 0 && end.charIndex < endNode.text.length) {
         splitSpan(endPara, end.spanIndex, end.charIndex);
         // After split, the "selection end" is at the end of the LEFT span.
         // So we don't need to change indices, effectively.
@@ -547,15 +683,17 @@ export function applyStyle(document: DocumentModel, selection: Selection, styleC
             // UNLESS it's an empty span (placeholder) where we want to apply style
             if (end.charIndex === 0 && p === end.paragraphIndex) {
                 const span = paragraph.children[end.spanIndex];
-                if (span.text.length > 0) {
+                if (span.type !== 'span' || span.text.length > 0) {
                     endS = end.spanIndex - 1;
                 }
             }
         }
 
         for (let s = startS; s <= endS; s++) {
-            const span = paragraph.children[s];
-            span.style = { ...span.style, ...styleChange };
+            const node = paragraph.children[s];
+            if (node.type === 'span') {
+                node.style = { ...node.style, ...styleChange };
+            }
         }
     }
 }
@@ -567,7 +705,10 @@ export function getStyleAtPosition(document: DocumentModel, position: CursorPosi
     const section = document.sections[0];
     const paragraph = section.children[position.paragraphIndex];
     const span = paragraph.children[position.spanIndex];
-    return span.style;
+    if (span && span.type === 'span') {
+        return span.style;
+    }
+    return { fontFamily: 'Roboto-Regular', fontSize: 16 }; // Default style for non-text nodes
 }
 
 // The Toggle Function
@@ -577,7 +718,7 @@ export function toggleStyle(document: DocumentModel, selection: Selection, prope
 
     // Determine target value (invert current)
     // Coerce to boolean for toggles (bold, italic, underline)
-    const currentValue = !!currentStyle[property];
+    const currentValue = !!(currentStyle && currentStyle[property]);
     const newValue = !currentValue;
 
     // Apply the new forced value across the whole selection
